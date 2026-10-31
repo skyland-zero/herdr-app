@@ -764,6 +764,14 @@ has 120 programs (agents, editors, runtimes, tools, databases, infra);
   `spaces` sidebar nests worktree spaces under their repo's and shows each
   space's repo, branch, ahead/behind and uncommitted changes). Shipped mods
   are Herdr's; duplicate with `mod.clone` before editing.
+- `opencode-usage` is the one shipped mod that reaches the network: it shows
+  the OpenCode Go plan's 5-hour, weekly and monthly windows
+  (`GET https://opencode.ai/zen/go/v1/usage`, with a Go key it reads from the
+  local `opencode` server's `/api/credential`) as a window, `ctrl-alt-u`.
+  The status bar draws the same numbers only when `shared("opencode-usage")`
+  is true (it reads the `opencode-usage.last` cache the mod writes). It keeps
+  no key and sends nothing anywhere else; without `opencode` running it shows
+  `opencode is not running`.
 
 ### Check before you finish
 

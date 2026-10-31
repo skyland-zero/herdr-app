@@ -56,7 +56,8 @@
     "ctrl-6": "space.select:6",
     "ctrl-7": "space.select:7",
     "ctrl-8": "space.select:8",
-    "ctrl-9": "space.select:9"
+    "ctrl-9": "space.select:9",
+    "ctrl-alt-u": "mod.open:opencode-usage"
   },
   "terminal": {
     "cmd-c": "terminal.copy",
@@ -68,5 +69,9 @@
     "cmd-left": "send:\u0001",
     "cmd-right": "send:\u0005",
     "cmd-backspace": "send:\u0015"
+  },
+  "mod:opencode-usage": {
+    "ctrl-alt-u": "opencode-usage.close",
+    "escape": "opencode-usage.close"
   }
 }

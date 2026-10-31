@@ -57,7 +57,8 @@
     "ctrl-shift-z": "pane.zoom",
     "ctrl-shift-l": "layout.switch",
     "f2": "tab.rename",
-    "shift-f2": "space.rename"
+    "shift-f2": "space.rename",
+    "ctrl-alt-u": "mod.open:opencode-usage"
   },
   "terminal": {
     "ctrl-backspace": "send:\u0017",
@@ -66,5 +67,9 @@
     "ctrl-shift-c": "terminal.copy",
     "ctrl-shift-v": "terminal.paste",
     "ctrl-v": "terminal.paste_image"
+  },
+  "mod:opencode-usage": {
+    "ctrl-alt-u": "opencode-usage.close",
+    "escape": "opencode-usage.close"
   }
 }

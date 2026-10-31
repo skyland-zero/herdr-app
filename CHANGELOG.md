@@ -1,5 +1,10 @@
 # Herdr changelog
 
+## [Unreleased]
+
+### New
+- An OpenCode usage window (`ctrl-alt-u`) shows the OpenCode Go plan's 5-hour, weekly and monthly windows with their reset countdowns. It reads a Go key from the local `opencode` server and sends only that key, to `opencode.ai`; nothing is written down. On the status bar the same numbers appear when `shared.json` has `"opencode-usage": true`.
+
 ## [0.1.10] - 2026-10-30
 
 ### Fixed

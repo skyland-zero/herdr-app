@@ -175,6 +175,8 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
             let reply = match name {
                 "exec" if matches!(first.as_str(), Some("cmd" | "open" | "xdg-open")) => Some(json!({"code":0,"stdout":"","stderr":""})),
                 "readTextFile" if first == "/fixture/app/settings.json" || first == "/fixture/.ssh/config" => Some(Value::Null),
+                // opencode's service file: absent, so a usage mod shows no windows.
+                "readTextFile" if first == "/fixture/.local/state/opencode/service.json" => Some(Value::Null),
                 // A file the Files panel can open in a tab.
                 "readTextFile" if first == "/fixture/project/README.md" => Some(json!("# fixture\n")),
                 "readTextFile" if first == "/fixture/.config/obsidian/obsidian.json" => Some(obsidian.clone()),
@@ -797,7 +799,9 @@ fn shipped_layouts_and_keys() {
         layouts.insert(path.file_stem().unwrap().to_str().unwrap().to_owned());
     }
     assert_eq!(layouts, crate::window::shipped_layouts().into_iter().map(str::to_owned).collect());
-    let mod_commands = ["ribbon.next"];
+    // A shipped key may name a command shipped mods deliver themselves
+    // (`<mod>.<command>`), which the app can't list: these are the ones in use.
+    let mod_commands = ["ribbon.next", "opencode-usage.close"];
     for text in [
         include_str!("../../defaults/keys.json"),
         include_str!("../../defaults/keys.macos.json"),
