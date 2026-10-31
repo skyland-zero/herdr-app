@@ -700,6 +700,19 @@ fn files_panel_opens_a_file_in_a_tab(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn files_viewer_tab_shows_one_file(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    // A mod tab's props reach the mod through `props()`, not `init`'s argument.
+    let mut values = fixture(true, props(), updates("current", "current"));
+    values.insert("props".into(), json!({ "file": "/fixture/project/README.md" }));
+    let tree = describe_with_values(cx, &staged, "mods/files", values, None).unwrap();
+    assert!(tree.contains("README.md"), "{tree}");
+    assert!(tree.contains("/fixture/project/README.md"), "{tree}");
+    assert!(!tree.contains("file-src"), "a viewer tab is not the browser: {tree}");
+}
+
+#[gpui::test]
 fn duplicate_element_negative_control(cx: &mut TestAppContext) {
     cx.update(gpui_shell::init);
     let staged = Staged::new();

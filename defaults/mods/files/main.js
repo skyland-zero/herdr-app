@@ -1,7 +1,7 @@
 // A lazy file browser for the focused pane's folder, with bounded read-only previews.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { spaces, panes, focused, exec, readDir, readTextFile, watchFolder, theme, settings, run, window, notify } from "herdr";
+import { spaces, panes, focused, exec, readDir, readTextFile, watchFolder, theme, settings, run, window, notify, props } from "herdr";
 
 function location() {
   const space = spaces().find(s => s.active), f = focused();
@@ -22,10 +22,12 @@ async function directory(path, on) {
 }
 
 export default class Files extends View {
-  init(props, cx) {
+  init(_props, cx) {
     // A tab of its own (`tab.new { mod: "files", props: { file, on } }`): one
-    // file, full width. The panel is the browser.
-    this.viewer = props?.file ? { file: props.file, on: props.on ?? null } : null;
+    // file, full width. The panel is the browser. `props()` is the live copy
+    // the shell keeps for this instance; the argument is only for `cx.new`.
+    const p = props();
+    this.viewer = p?.file ? { file: p.file, on: p.on ?? null } : null;
     if (this.viewer) { this.loadViewer(cx); return; }
     this.saved = new Map();
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {}; this.marksToken = 0;
