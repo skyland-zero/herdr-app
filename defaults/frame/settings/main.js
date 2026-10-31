@@ -504,7 +504,15 @@ export default class Settings extends View {
         ),
       )
       .child(fontRow("font", "font_size", "Terminal font", s.font_family, DEFAULT_FONT, s.font_size))
-      .child(fontRow("ui_font", null, "Interface font", s.ui_font_family, DEFAULT_UI_FONT));
+      .child(fontRow("ui_font", null, "Interface font", s.ui_font_family, DEFAULT_UI_FONT))
+      .child(div().h(18))
+      .child(this.heading(t, "Files"))
+      .child(this.row(t, "Open files in a tab", "A click on a file in the Files panel opens it in a tab of its own, full width. Off: it opens in the panel itself.",
+        this.toggle(t, "st-files-tab", p.files_open_in_tab !== false, (_e, cx) =>
+          this.change((q) => {
+            if (q.files_open_in_tab === false) delete q.files_open_in_tab;
+            else q.files_open_in_tab = false;
+          }, cx))));
   }
 
   // Machines -------------------------------------------------------------

@@ -1,7 +1,7 @@
 // A lazy file browser for the focused pane's folder, with bounded read-only previews.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { spaces, panes, focused, exec, readDir, readTextFile, watchFolder, theme, settings, run, window } from "herdr";
+import { spaces, panes, focused, exec, readDir, readTextFile, watchFolder, theme, settings, run, window, notify } from "herdr";
 
 function location() {
   const space = spaces().find(s => s.active), f = focused();
@@ -22,13 +22,32 @@ async function directory(path, on) {
 }
 
 export default class Files extends View {
-  init(_props, cx) {
+  init(props, cx) {
+    // A tab of its own (`tab.new { mod: "files", props: { file, on } }`): one
+    // file, full width. The panel is the browser.
+    this.viewer = props?.file ? { file: props.file, on: props.on ?? null } : null;
+    if (this.viewer) { this.loadViewer(cx); return; }
     this.saved = new Map();
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {}; this.marksToken = 0;
     this.refresh(cx);
     // The folder watch keeps an open panel live; the timer is for when it can't
     // start (a network drive) and for a remote machine, which has no watch.
     cx.timer.every(10000, cx => { if (!this.watched) this.refresh(cx); });
+  }
+
+  async loadViewer(cx) {
+    const { file, on } = this.viewer;
+    try {
+      const text = await readTextFile(file, { on });
+      if (text === null) { this.error = "This file is no longer available"; return; }
+      if (text.includes("\0")) { this.error = "Binary file · no text preview"; return; }
+      const t = theme(), ext = file.includes(".") ? file.split(".").pop() : "txt";
+      this.code = EditorState.new({ language: LANG[ext] ?? ext, readonly: true,
+        value: text.length > 400000 ? text.slice(0, 400000) + "\n… (file truncated)" : text,
+        font_family: settings().font_family, font_size: settings().font_size ?? 13,
+        syntax: { keyword: t.ansi5, string: t.ansi2, comment: t.dim, function: t.ansi4, type: t.ansi3, number: t.ansi1, constant: t.ansi6 } });
+    } catch { this.error = "Cannot preview this file (binary, too large, or unreadable)"; }
+    finally { cx.notify(); }
   }
 
   watch(root, cx) {
@@ -157,6 +176,26 @@ export default class Files extends View {
     cx.notify();
   }
 
+  // A click on a file: a tab of its own (the setting), or the panel's preview.
+  open(path, cx) {
+    if (settings().files_open_in_tab === false) return this.show(path, cx);
+    this.openTab(path, cx);
+  }
+
+  // Only text opens a tab: a binary or too-large file would show nothing there,
+  // so it gets a toast instead of a tab that can't be read.
+  async openTab(path, cx) {
+    const context = this.context, file = this.full(path), on = this.on;
+    try {
+      const text = await readTextFile(file, { on });
+      if (!this.current(context)) return;
+      if (text === null || text.includes("\0")) return notify({ title: path, body: text === null ? "This file is no longer available" : "Binary file · no text preview", level: "warning" });
+      run("tab.new", { name: path, mod: "files", props: { file, ...(on ? { on } : {}) } });
+    } catch {
+      if (this.current(context)) notify({ title: path, body: "Cannot open this file (binary, too large, or unreadable)", level: "warning" });
+    }
+  }
+
   show(path, cx) {
     this.code?.release(); this.code = null; this.file = path; this.fileError = null;
     if (!path || !cx) return;
@@ -191,7 +230,7 @@ export default class Files extends View {
       if (out.length >= TOTAL) break;
       const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${slashed(this.root)}/${path}`];
       out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
-        .on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.show(path, cx))
+        .on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.open(path, cx))
         // A press may become a drag: the app follows it from here (`path.drag`), because
         // a mod's own mouse events stop at the row and only the app knows which pane
         // the pointer is over. A press that never moves is still a click, above.
@@ -208,8 +247,16 @@ export default class Files extends View {
   }
 
   render(cx) {
-    if (key() !== this.context?.key) this.refresh(cx);
     const t = theme();
+    if (this.viewer) {
+      const name = this.viewer.file.split(/[\\/]/).pop();
+      return v_flex().size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
+        .child(h_flex().h(32).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
+          .child(div().font_semibold().child(name))
+          .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(this.viewer.file)))
+        .child(this.code ? Editor.new(this.code).flex_1().min_h(0) : div().p(12).text_color(t.dim).child(this.error || "Loading file…"));
+    }
+    if (key() !== this.context?.key) this.refresh(cx);
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .when(Boolean(this.file), el => el.child(div().id("files-back").w(20).cursor_pointer().text_color(t.muted).on_click((_e, cx) => { this.show(null); cx.notify(); }).child("←")))

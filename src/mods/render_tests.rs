@@ -160,6 +160,8 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
             let first = a.get(0).map(from_host).unwrap_or(Value::Null);
             let reply = match name {
                 "readTextFile" if first == "/fixture/app/settings.json" || first == "/fixture/.ssh/config" => Some(Value::Null),
+                // A file the Files panel can open in a tab.
+                "readTextFile" if first == "/fixture/project/README.md" => Some(json!("# fixture\n")),
                 "readTextFile" => first
                     .as_str()
                     .and_then(|p| p.strip_prefix("/fixture/app/layouts/"))
@@ -627,10 +629,10 @@ fn files_panel_rows_hand_a_press_to_the_app(cx: &mut TestAppContext) {
     assert!(tree.contains(":on_mouse_down_left(fn)"), "{tree}");
 }
 
-/// Press the files panel's first row in a real view and give back what the
-/// handlers did. Two draws: the first starts the folder load, the second lays
-/// the rows out after it lands.
-fn press_files_row(cx: &mut TestAppContext, staged: &Staged, values: BTreeMap<String, Value>) -> Vec<(String, Vec<Value>)> {
+/// Mount the files panel, put the pointer down on a row and (with `click`) up
+/// again, and give back what the handlers did. Two draws: the first starts the
+/// folder load, the second lays the rows out after it lands.
+fn files_row(cx: &mut TestAppContext, staged: &Staged, values: BTreeMap<String, Value>, y: f32, click: bool) -> Vec<(String, Vec<Value>)> {
     use gpui::{Modifiers, MouseButton, VisualTestContext, point, px, size};
     use std::ops::Deref;
     let calls = Rc::new(RefCell::new(Calls::default()));
@@ -649,8 +651,12 @@ fn press_files_row(cx: &mut TestAppContext, staged: &Staged, values: BTreeMap<St
     visual.run_until_parked();
     visual.update(|window, cx| window.draw(cx).clear(cx));
     visual.run_until_parked();
-    // The first row (the fixture's src/ folder): header 42 + padding 6 + half a row.
-    visual.simulate_mouse_down(point(px(80.), px(62.)), MouseButton::Left, Modifiers::none());
+    // Rows start after the header (42) and the tree's padding (6): 28 each.
+    visual.simulate_mouse_down(point(px(80.), px(y)), MouseButton::Left, Modifiers::none());
+    if click {
+        visual.simulate_mouse_up(point(px(80.), px(y)), MouseButton::Left, Modifiers::none());
+        visual.run_until_parked();
+    }
     calls.borrow().effects.clone()
 }
 
@@ -665,15 +671,32 @@ fn files_panel_press_sends_path_drag(cx: &mut TestAppContext) {
             .map(|(_, args)| args[1].clone())
             .unwrap_or_else(|| panic!("a press on a row must send path.drag: {effects:?}"))
     };
-    let args = drag(&press_files_row(cx, &staged, fixture(true, props(), updates("current", "current"))));
+    // The first row (the fixture's src/ folder): header 42 + padding 6 + half a row.
+    let args = drag(&files_row(cx, &staged, fixture(true, props(), updates("current", "current")), 62., false));
     assert_eq!(args["paths"], json!(["/fixture/project/src"]));
     assert_eq!(args["label"], json!("src"));
     // Windows: the same row goes over with the machine's separators, not `/`.
     let mut values = fixture(true, props(), updates("current", "current"));
     values.get_mut("window").unwrap()["platform"] = json!("windows");
     values.get_mut("panes").unwrap()[0]["cwd"] = json!("D:\\proj");
-    let args = drag(&press_files_row(cx, &staged, values));
+    let args = drag(&files_row(cx, &staged, values, 62., false));
     assert_eq!(args["paths"], json!(["D:\\proj\\src"]));
+}
+
+#[gpui::test]
+fn files_panel_opens_a_file_in_a_tab(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    // The second row (README.md): the folder comes first, then its files.
+    let effects = files_row(cx, &staged, fixture(true, props(), updates("current", "current")), 90., true);
+    let (_, args) = effects
+        .iter()
+        .find(|(name, args)| name == "run" && args.first() == Some(&json!("tab.new")))
+        .unwrap_or_else(|| panic!("a click on a file must open it in a tab: {effects:?}"));
+    assert_eq!(args[1]["mod"], json!("files"));
+    assert_eq!(args[1]["name"], json!("README.md"));
+    assert_eq!(args[1]["props"]["file"], json!("/fixture/project/README.md"));
+    assert!(args[1]["props"].get("on").is_none(), "a local file opens on this machine");
 }
 
 #[gpui::test]
