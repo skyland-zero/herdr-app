@@ -1,5 +1,5 @@
 //! Asynchronous text files for mods. Writes reject a stale editor snapshot.
-use gpui_shell::{HostError, HostValue};
+use gpui_shell::{HostError, HostObject, HostValue};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::Mutex;
@@ -21,6 +21,51 @@ pub fn read(path: &Path) -> Result<Option<String>, String> {
         return Err("Text file exceeds 1 MiB".into());
     }
     Ok(Some(text))
+}
+
+/// One row of a folder: a name, and whether it is a folder. A symlink to a
+/// folder counts as a file, the way the files panel has always shown it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub name: String,
+    pub dir: bool,
+}
+
+/// A folder's entries, sorted by name.
+pub fn list(path: &Path) -> Result<Vec<Entry>, String> {
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(path).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        entries.push(Entry {
+            name: entry.file_name().to_string_lossy().into_owned(),
+            dir: entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false),
+        });
+    }
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(entries)
+}
+
+/// Lists off the UI thread: the rows, as `{ name, dir }`.
+pub fn list_with(
+    list: impl FnOnce() -> Result<Vec<Entry>, String> + Send + 'static,
+) -> impl std::future::Future<Output = Result<HostValue, HostError>> + Send {
+    let (tx, rx) = async_channel::bounded(1);
+    std::thread::spawn(move || {
+        let _ = tx.send_blocking(list());
+    });
+    async move {
+        let entries = rx
+            .recv()
+            .await
+            .map_err(|e| HostError::new(e.to_string()))?
+            .map_err(HostError::new)?;
+        Ok(HostValue::Array(
+            entries
+                .into_iter()
+                .map(|entry| HostObject::new().field("name", entry.name).field("dir", entry.dir).into())
+                .collect(),
+        ))
+    }
 }
 
 fn write(path: &Path, text: &str, expected: Option<&str>) -> Result<(), String> {
@@ -130,6 +175,25 @@ mod tests {
         write(&path, "- [x] Task\n", Some("- [ ] Task\n")).unwrap();
         assert!(write(&path, "stale", Some("- [ ] Task\n")).is_err());
         assert_eq!(read(&path).unwrap().unwrap(), "- [x] Task\n");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn lists_a_folder_with_its_names_intact() {
+        let root = std::env::temp_dir().join(format!("herdr-app-list-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("中文目录")).unwrap();
+        std::fs::write(root.join("b.txt"), "b").unwrap();
+        std::fs::write(root.join("测试.txt"), "x").unwrap();
+        let entries = list(&root).unwrap();
+        assert_eq!(
+            entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            ["b.txt", "中文目录", "测试.txt"],
+            "sorted by name, and a name that is not ASCII is kept as text"
+        );
+        assert!(entries.iter().find(|e| e.name == "中文目录").unwrap().dir);
+        assert!(!entries.iter().find(|e| e.name == "b.txt").unwrap().dir);
+        assert!(list(&root.join("missing")).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

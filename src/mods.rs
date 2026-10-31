@@ -808,6 +808,24 @@ fn read_remote(machine: &str, path: &str) -> Result<Option<String>, String> {
     Ok(Some(String::from_utf8_lossy(&out).into_owned()))
 }
 
+/// A folder's rows on another machine, through `sh` (kind and name, NUL-separated).
+fn list_remote(machine: &str, path: &str) -> Result<Vec<crate::mod_files::Entry>, String> {
+    // 501 rows: enough for a mod to tell "more than 500" and say so.
+    const SCRIPT: &str = r#"n=0; for p in "$1"/* "$1"/.[!.]* "$1"/..?*; do [ -e "$p" ] || [ -L "$p" ] || continue; name=${p##*/}; if [ -d "$p" ] && [ ! -L "$p" ]; then kind=d; else kind=f; fi; printf "%s\0%s\0" "$kind" "$name"; n=$((n+1)); [ "$n" -gt 500 ] && break; done; test -d "$1""#;
+    let (code, out, err) = run_remote(machine, "sh", &["-c".into(), SCRIPT.into(), "files".into(), path.into()], None)?;
+    if code != 0 {
+        let message = String::from_utf8_lossy(&err).trim().to_owned();
+        return Err(if message.is_empty() { "Cannot list this folder".into() } else { message });
+    }
+    let out = String::from_utf8_lossy(&out);
+    Ok(out
+        .split('\0')
+        .collect::<Vec<_>>()
+        .chunks_exact(2)
+        .map(|pair| crate::mod_files::Entry { name: pair[1].to_owned(), dir: pair[0] == "d" })
+        .collect())
+}
+
 fn exec_future(command: String, args: Vec<String>, cwd: Option<String>, on: Option<String>) -> impl std::future::Future<Output = Result<HostValue, HostError>> + Send {
     let (tx, rx) = async_channel::bounded(1);
     std::thread::spawn(move || {
@@ -842,6 +860,14 @@ fn module(inst: Instance, copy: u64) -> HostModule {
             Ok(crate::mod_files::read_with(move || match on {
                 Some(m) => read_remote(&m, &path),
                 None => crate::mod_files::read(Path::new(&path)),
+            }))
+        })
+        .async_function("readDir", |a| {
+            let path = a.string(0)?.to_owned();
+            let on = opt_str(a.get(1), "on");
+            Ok(crate::mod_files::list_with(move || match on {
+                Some(m) => list_remote(&m, &path),
+                None => crate::mod_files::list(Path::new(&path)),
             }))
         })
         .async_function("writeTextFile", |a| {

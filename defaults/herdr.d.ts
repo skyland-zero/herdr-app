@@ -23,6 +23,15 @@ export function appHome(): string;
 /** Reads UTF-8 text (up to 1 MiB), or null if absent. Runs off the UI thread.
  *  `on`: from that machine (a space's `machine`). */
 export function readTextFile(path: string, options?: { on?: string | null }): Promise<string | null>;
+/** One row of a folder: its name, and whether it is a folder. A symlink to a
+ *  folder counts as a file, as the files panel shows it. */
+export interface DirEntry {
+  name: string;
+  dir: boolean;
+}
+/** Lists a folder, sorted by name (at most 501 rows on another machine). Runs off
+ *  the UI thread. `on`: from that machine (a space's `machine`). */
+export function readDir(path: string, options?: { on?: string | null }): Promise<DirEntry[]>;
 /** Writes UTF-8 text only if it still matches expected (null creates a new file).
  * Rejects on a stale snapshot; existing files are replaced atomically. */
 export function writeTextFile(path: string, text: string, expected: string | null): Promise<null>;

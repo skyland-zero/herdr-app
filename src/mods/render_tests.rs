@@ -154,7 +154,7 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
     for name in ["nextCommand", "watchFolder"] {
         module = module.async_function(name, |_| Ok(std::future::pending::<gpui_shell::HostResult>()));
     }
-    for name in ["exec", "hc", "readTextFile", "writeTextFile", "sendFeedback"] {
+    for name in ["exec", "hc", "readTextFile", "readDir", "writeTextFile", "sendFeedback"] {
         let calls = calls.clone();
         module = module.async_function(name, move |a| {
             let first = a.get(0).map(from_host).unwrap_or(Value::Null);
@@ -172,14 +172,8 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
                 "hc" if first.as_array().and_then(|a| a.first()).and_then(Value::as_str) == Some("run") => {
                     Some(json!({"code":0,"stdout":"{\"address\":\"t-setup\"}","stderr":""}))
                 }
-                // The files panel lists a folder with sh: kind and name pairs.
-                "exec" if first == "sh" && a.get(1).map(from_host).and_then(|v| v.get(2).cloned()) == Some(json!("files")) => {
-                    Some(json!({"code":0,"stdout":"d\u{0}src\u{0}f\u{0}README.md\u{0}","stderr":""}))
-                }
-                // The same on Windows, as JSON.
-                "exec" if first == "powershell" => {
-                    Some(json!({"code":0,"stdout":"[{\"name\":\"src\",\"dir\":true},{\"name\":\"README.md\",\"dir\":false}]","stderr":""}))
-                }
+                // A folder's rows, as readDir hands them over.
+                "readDir" => Some(json!([{"name":"src","dir":true},{"name":"README.md","dir":false}])),
                 "exec"
                     if first == "git"
                         && [

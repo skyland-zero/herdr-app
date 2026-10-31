@@ -926,7 +926,8 @@ All of it is in `herdr.d.ts`. In short:
   shell agents start in); start one with `argv: agent.run`.
   `pickFolder({ prompt })`: the system's folder picker (here only),
   resolves with the folder or null.
-- Files: `readTextFile(path, { on })` (here, or on that machine),
+- Files: `readDir(path, { on })` (a folder's `{ name, dir }` rows, sorted,
+  here or on that machine), `readTextFile(path, { on })` (here, or on that machine),
   `writeTextFile(path, text, expected)` (here only), and
   `watchFolder(dir)` (here only; poll a remote space's folder): resolves with the changed paths the next time anything
   under `dir` changes (none missed between calls), so a file tree, a board
