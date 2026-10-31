@@ -542,6 +542,11 @@ The main ones:
   Windows, clipboard text is pasted; otherwise Ctrl+V goes to the program, which
   reads the clipboard itself). TIFF and BMP clipboard
   images are converted to PNG before sending,
+  `path.drag {paths, label?, at?, on?}` is how a mod starts a file drag the app
+  follows: on release it types the paths, quoted the way a file dropped from the
+  OS is, into the terminal the pointer is over (Esc cancels). A terminal on
+  another machine gets them copied there first; `on` is the machine the paths
+  live on, for a mod listing another machine's files.
   `terminal.right_click {to: "program" | "menu", terminal?}` (where right-clicks go
   when the program takes the mouse; kept as its label `herdr.right-click=program`;
   Shift+right-click is always Herdr's menu). Copy, paste, paste-image and implicit
@@ -861,6 +866,13 @@ keyword: theme().ansi5, ... } })` + `Editor.new(state)` is a code view (readonly
 or editor with syntax highlighting, line numbers and folding. A viewer opens
 beside the shell as a pane: `pane.split {direction, mod, props: { file }}`.
 The full surface is in `gpui-kit.d.ts` next to this file.
+
+Dragging a row onto a terminal: call
+`run("path.drag", { paths: ["/abs/file"], label: "file", at: event.position })`
+from the row's `on_mouse_down("left", …)`. The app follows the pointer, shows
+the terminal it would land in, and types the quoted paths into it on release.
+A press that never moves is still a click, so keep your `on_click`. Add
+`on: space.machine` when the paths are another machine's.
 
 ### The `herdr` module
 

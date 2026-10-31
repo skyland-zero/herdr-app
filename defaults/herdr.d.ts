@@ -60,6 +60,9 @@ export function playSound(sound: string): null;
  *   terminal.park {terminal} (its pane goes, it keeps running; the menu's "Send back"),
  *   terminal.peek {terminal} (peek over the tab, with keep-as-tab and close),
  *   terminal.show {terminal?, pane?} (shown in the pane for now, in place of its own), terminal.copy, terminal.paste,
+ *   path.drag {paths, label?, at?, on?} (a mod was pressed on these paths: the app follows the pointer and
+ *     types them, quoted, into the terminal a release lands on; Esc cancels; a terminal on another machine
+ *     gets them copied there first, and `on` is the machine the paths live on),
  *   terminal.right_click {to: "program" | "menu", terminal?} (right-clicks to a program that takes the mouse; Shift: the menu).
  * Agents: agent.next, agent.prev (the agents list's order), agent.focus {terminal} (sub-agents too).
  * Layout (the shown layout's nodes by id): layout.toggle|show|hide {id}, layout.resize {id, px | weight},

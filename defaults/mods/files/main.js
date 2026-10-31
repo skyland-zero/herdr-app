@@ -1,7 +1,7 @@
 // A lazy file browser for the focused pane's folder, with bounded read-only previews.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, window } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, run, window } from "herdr";
 
 function location() {
   const space = spaces().find(s => s.active), f = focused();
@@ -137,6 +137,14 @@ export default class Files extends View {
     });
   }
 
+  // The absolute path of a row, in the separators its machine uses: this one's
+  // (Windows paths have `\`) or a remote machine's (`/`).
+  full(path) {
+    if (this.on || window()?.platform !== "windows") return `${this.root.replace(/\/+$/, "")}/${path}`;
+    const root = this.root.replaceAll("/", "\\").replace(/\\+$/, "");
+    return `${root}\\${path.replaceAll("/", "\\")}`;
+  }
+
   rows(prefix, depth, out, t) {
     if (out.length >= TOTAL || depth > 40) return out;
     for (const entry of this.entries.get(prefix) ?? []) {
@@ -144,6 +152,12 @@ export default class Files extends View {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
       out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
         .on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.show(path, cx))
+        // A press may become a drag: the app follows it from here (`path.drag`), because
+        // a mod's own mouse events stop at the row and only the app knows which pane
+        // the pointer is over. A press that never moves is still a click, above.
+        .on_mouse_down("left", (e, _cx) => {
+          if (this.root) run("path.drag", { paths: [this.full(path)], label: entry.name, at: e.position, ...(this.on ? { on: this.on } : {}) });
+        })
         .child(entry.dir ? svg(`mods/files/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
         .child(svg(`mods/files/${entry.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t.muted))
         .child(div().flex_1().min_w(0).truncate().child(entry.name))

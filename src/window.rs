@@ -8,6 +8,7 @@ use crate::hc::Core;
 mod floats;
 mod movable;
 mod pane_drag;
+mod path_drag;
 mod titlebar;
 
 use crate::layout::{Axis, Background as Paint, Content, Fit, HeaderContent, Kind, Line, Node, PaneFrame, Size as Span};
@@ -359,6 +360,7 @@ pub struct AppWindow {
     swapped: HashMap<String, String>,
     float_drag: Option<floats::FloatDrag>,
     pane_drag: Option<pane_drag::PaneDrag>,
+    path_drag: Option<path_drag::PathDrag>,
     pane_grip_hover: Option<String>,
     /// Each pane's top row the grip sits centered in: its top header, else a strip.
     pane_grip_rows: RefCell<HashMap<String, f32>>,
@@ -460,6 +462,7 @@ impl AppWindow {
             swapped: HashMap::new(),
             float_drag: None,
             pane_drag: None,
+            path_drag: None,
             pane_grip_hover: None,
             pane_grip_rows: RefCell::default(),
             win_drag: None,
@@ -946,6 +949,7 @@ impl AppWindow {
         self.save();
         self.float_drag = None;
         self.pane_drag = None;
+        self.path_drag = None;
         self.float_anims.clear();
         self.float_reveal.clear();
         self.float_hover.clear();
@@ -2921,6 +2925,10 @@ impl AppWindow {
                 }
                 return;
             }
+            "path.drag" => {
+                let r = self.path_press(a, cx);
+                self.answer(r);
+            }
             // ---- agents
             "agent.focus" => {
                 let t = Self::arg(a, "terminal").unwrap_or_default().to_owned();
@@ -4467,6 +4475,7 @@ impl Render for AppWindow {
         let tracker = self.float_tracker(cx);
         let win_tracker = self.window_tracker(cx);
         let pane_drag = self.pane_drag_layer(cx);
+        let path_drag = self.path_drag_layer(cx);
         div()
             .id("herdr")
             .track_focus(&self.focus)
@@ -4487,12 +4496,26 @@ impl Render for AppWindow {
                 }
             }))
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
-                if ev.keystroke.key == "escape" && this.pane_drag.is_some() {
-                    this.cancel_pane_drag(cx);
-                    cx.stop_propagation();
+                if ev.keystroke.key == "escape" {
+                    if this.pane_drag.is_some() {
+                        this.cancel_pane_drag(cx);
+                        cx.stop_propagation();
+                    }
+                    if this.path_drag.is_some() {
+                        this.cancel_path_drag(cx);
+                        cx.stop_propagation();
+                    }
                 }
             }))
-            .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, _| this.pointer = ev.position))
+            .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, _, cx| {
+                // A press anywhere ends a drag whose release the platform never
+                // delivered (the window lost the button, say). The press that
+                // starts one arrives before its `path.drag`, so it isn't this.
+                if this.path_drag.is_some() {
+                    this.cancel_path_drag(cx);
+                }
+                this.pointer = ev.position;
+            }))
             .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
                 this.drag_window(ev, window);
                 if this.drag.is_none() {
@@ -4521,6 +4544,7 @@ impl Render for AppWindow {
             .children(tracker)
             .children(win_tracker)
             .child(pane_drag)
+            .child(path_drag)
             .child(crate::bench::frame_end())
     }
 }

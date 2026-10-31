@@ -176,6 +176,10 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
                 "exec" if first == "sh" && a.get(1).map(from_host).and_then(|v| v.get(2).cloned()) == Some(json!("files")) => {
                     Some(json!({"code":0,"stdout":"d\u{0}src\u{0}f\u{0}README.md\u{0}","stderr":""}))
                 }
+                // The same on Windows, as JSON.
+                "exec" if first == "powershell" => {
+                    Some(json!({"code":0,"stdout":"[{\"name\":\"src\",\"dir\":true},{\"name\":\"README.md\",\"dir\":false}]","stderr":""}))
+                }
                 "exec"
                     if first == "git"
                         && [
@@ -209,6 +213,14 @@ struct Empty;
 impl gpui::Render for Empty {
     fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
         gpui::div()
+    }
+}
+
+/// A real view (not a description) so a test can press it.
+struct Mounted(gpui::Entity<gpui_shell::ShellRoot>);
+impl gpui::Render for Mounted {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl gpui::IntoElement {
+        self.0.clone()
     }
 }
 
@@ -595,6 +607,79 @@ fn local_state_and_overlay_initial_descriptions(cx: &mut TestAppContext) {
         describe(cx, &staged, entry, true, p, updates("current", "current"), None).unwrap();
     }
     eprintln!("18 local-state/overlay cases, each twice: {:?}", start.elapsed());
+}
+
+#[gpui::test]
+fn files_panel_rows_hand_a_press_to_the_app(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    let calls = Rc::new(RefCell::new(Calls::default()));
+    let policy = Policy::new()
+        .with_host_module(module(fixture(true, props(), updates("current", "current")), calls.clone()))
+        .unwrap();
+    let window = cx.add_window(|_, _| Empty);
+    let mut session = window
+        .update(cx, |_, window, cx| {
+            DescriptionSession::load(ShellRuntime::new_isolated().unwrap(), staged.0.join("mods/files"), policy, window, cx).unwrap()
+        })
+        .unwrap();
+    cx.run_until_parked();
+    let tree = window.update(cx, |_, window, cx| session.describe(window, cx).unwrap()).unwrap();
+    window.update(cx, |_, window, _| window.remove_window()).unwrap();
+    assert!(calls.borrow().unexpected.is_empty(), "{:?}", calls.borrow().unexpected);
+    // A drag can't stay in the mod: its handlers stop at the row's edge, so the
+    // press starts the app's drag (`path.drag`) and the click still opens the file.
+    assert!(tree.contains("file-README.md") && tree.contains("file-src"), "{tree}");
+    assert!(tree.contains(":on_mouse_down_left(fn)"), "{tree}");
+}
+
+/// Press the files panel's first row in a real view and give back what the
+/// handlers did. Two draws: the first starts the folder load, the second lays
+/// the rows out after it lands.
+fn press_files_row(cx: &mut TestAppContext, staged: &Staged, values: BTreeMap<String, Value>) -> Vec<(String, Vec<Value>)> {
+    use gpui::{Modifiers, MouseButton, VisualTestContext, point, px, size};
+    use std::ops::Deref;
+    let calls = Rc::new(RefCell::new(Calls::default()));
+    let policy = Policy::new()
+        .with_capabilities(Capabilities::new().storage(true).read_roots([staged.0.clone()]))
+        .with_host_module(module(values, calls.clone()))
+        .unwrap();
+    gpui_shell::policy::set_default(policy);
+    let runtime = ShellRuntime::new_isolated().unwrap();
+    let window = cx.add_window(|window, cx| {
+        Mounted(runtime.try_load(&staged.0.join("mods/files"), window, cx).unwrap())
+    });
+    let mut visual = VisualTestContext::from_window(*window.deref(), cx);
+    visual.simulate_resize(size(px(420.), px(640.)));
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.run_until_parked();
+    // The first row (the fixture's src/ folder): header 42 + padding 6 + half a row.
+    visual.simulate_mouse_down(point(px(80.), px(62.)), MouseButton::Left, Modifiers::none());
+    calls.borrow().effects.clone()
+}
+
+#[gpui::test]
+fn files_panel_press_sends_path_drag(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    let drag = |effects: &[(String, Vec<Value>)]| -> Value {
+        effects
+            .iter()
+            .find(|(name, args)| name == "run" && args.first() == Some(&json!("path.drag")))
+            .map(|(_, args)| args[1].clone())
+            .unwrap_or_else(|| panic!("a press on a row must send path.drag: {effects:?}"))
+    };
+    let args = drag(&press_files_row(cx, &staged, fixture(true, props(), updates("current", "current"))));
+    assert_eq!(args["paths"], json!(["/fixture/project/src"]));
+    assert_eq!(args["label"], json!("src"));
+    // Windows: the same row goes over with the machine's separators, not `/`.
+    let mut values = fixture(true, props(), updates("current", "current"));
+    values.get_mut("window").unwrap()["platform"] = json!("windows");
+    values.get_mut("panes").unwrap()[0]["cwd"] = json!("D:\\proj");
+    let args = drag(&press_files_row(cx, &staged, values));
+    assert_eq!(args["paths"], json!(["D:\\proj\\src"]));
 }
 
 #[gpui::test]

@@ -289,6 +289,17 @@ Ctrl+V: the clipboard's image as a file on the focused terminal's machine, when 
 
 No arguments.
 
+## `path.drag`
+
+A mod was pressed on these paths: the app follows the pointer and drops them into the terminal a release lands on (Esc cancels). A terminal on another machine gets the files copied there first.
+
+| Argument | Required |
+|---|---|
+| `paths` | yes |
+| `label` | no |
+| `at` | no |
+| `on` | no |
+
 ## `agent.focus`
 
 Show an agent (sub-agents too).

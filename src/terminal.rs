@@ -412,13 +412,19 @@ impl TerminalView {
     /// Files dropped on the terminal: their paths typed in, quoted, as a paste
     /// (agents read a dropped image that way). A terminal on another machine
     /// gets each file copied there first (`hc put`), and its path there.
-    fn dropped(&mut self, paths: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
+    pub(crate) fn dropped(&mut self, paths: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
         if !self.address.contains('/') {
-            let text = quote_paths(paths.iter().map(|p| p.to_string_lossy().into_owned()));
-            let bytes = self.grid.borrow().vt.paste_bytes(&text);
-            return self.send(&bytes);
+            return self.drop_paths(paths);
         }
         self.put_there(paths, false, cx);
+    }
+
+    /// Paths that are already on this terminal's machine (a drag from a file
+    /// panel): typed in, quoted, as a paste, the way an OS drop does it.
+    pub(crate) fn drop_paths(&mut self, paths: Vec<std::path::PathBuf>) {
+        let text = quote_paths(paths.iter().map(|p| p.to_string_lossy().into_owned()));
+        let bytes = self.grid.borrow().vt.paste_bytes(&text);
+        self.send(&bytes);
     }
 
     /// Copies files to this terminal's machine (`hc put`) and pastes their
@@ -691,8 +697,16 @@ pub(crate) fn shown_title(title: &str) -> &str {
 /// Paths as a shell reads them, space-separated with a trailing space: bare
 /// when plain, else single-quoted (`'` escaped as the shell wants it).
 fn quote_paths(paths: impl IntoIterator<Item = String>) -> String {
+    // A backslash is literal in PowerShell and cmd, so a Windows path goes in
+    // bare (`D:\code\main.rs`) unless it has something the shell reads as
+    // syntax: whitespace, `,` (array), `%` (variable), quotes, `$`, `&`, `;`,
+    // `|`, `<>`, `()`, `^`, `!`, `` ` ``, `#`. Bare is also what an agent reads
+    // best. Letters of any script (a Chinese folder name) are plain too.
+    let bare = |c: char| {
+        c.is_alphanumeric() || if cfg!(windows) { "\\/._-+=:@~".contains(c) } else { "/._-+=,:@%~".contains(c) }
+    };
     let quote = |p: String| {
-        if !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || "/._-+=,:@%~".contains(c)) {
+        if !p.is_empty() && p.chars().all(bare) {
             return p;
         }
         if cfg!(windows) { format!("'{}'", p.replace('\'', "''")) } else { format!("'{}'", p.replace('\'', "'\\''")) }
@@ -1635,6 +1649,18 @@ mod tests {
         assert_eq!(q(&["/tmp/shot.png"]), "/tmp/shot.png ");
         assert_eq!(q(&["/tmp/my shot.png", "/a/b"]), "'/tmp/my shot.png' /a/b ");
         assert_eq!(q(&["/tmp/it's.png"]), "'/tmp/it'\\''s.png' ");
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn windows_paths_stay_bare_unless_the_shell_needs_quotes() {
+        let q = |v: &[&str]| super::quote_paths(v.iter().map(|s| s.to_string()));
+        // Backslashes, dots and Chinese folders are all plain to PowerShell and cmd.
+        assert_eq!(q(&[r"D:\Zhichen\1.代码库\XGGLXT\docs\.gitignore"]), r"D:\Zhichen\1.代码库\XGGLXT\docs\.gitignore ");
+        assert_eq!(q(&[r"D:\my dir\a.txt"]), r"'D:\my dir\a.txt' ");
+        assert_eq!(q(&[r"D:\it's.txt"]), r"'D:\it''s.txt' ");
+        assert_eq!(q(&[r"D:\a,b.txt"]), r"'D:\a,b.txt' ");
+        assert_eq!(q(&[r"D:\a%b.txt"]), r"'D:\a%b.txt' ");
     }
 
     #[test]

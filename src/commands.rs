@@ -64,6 +64,8 @@ pub const COMMANDS: &[Command] = &[
     cmd("terminal.copy", &[], "Copy the focused terminal's selection."),
     cmd("terminal.paste", &[], "Paste into the focused terminal (copied files as if dropped; an image alone as terminal.paste_image pastes it)."),
     cmd("terminal.paste_image", &[], "Ctrl+V: the clipboard's image as a file on the focused terminal's machine, when that's another one; on Windows, paste clipboard text; otherwise Ctrl+V goes to the terminal."),
+    cmd("path.drag", &[req("paths"), opt("label"), opt("at"), opt("on")],
+        "A mod was pressed on these paths: the app follows the pointer and drops them into the terminal a release lands on (Esc cancels). A terminal on another machine gets the files copied there first."),
     cmd("agent.focus", &[req("terminal")], "Show an agent (sub-agents too)."),
     cmd("agent.next", &[], "Show the next agent, in the order the agents list shows them."),
     cmd("agent.prev", &[], "Show the previous agent."),
