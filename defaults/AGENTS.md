@@ -610,7 +610,10 @@ What's about the user, never a look:
   (path absolute or relative to `~/.config/herdr-app`). Changes apply live,
   including the Play buttons in Settings > Alerts.
 - `files_open_in_tab` (true): a click on a file in the Files panel opens it in
-  a tab of its own, full width; false opens it in the panel itself.
+  a tab of its own, full width; false opens it in the panel itself. Markdown
+  opens in Obsidian instead when one of its vaults holds the file (Herdr reads
+  the vaults from Obsidian's own config); a folder no vault holds stays in
+  Herdr, and the first click there says how to make it a vault.
 - `core`: the herdr-core binary to use, when it isn't where Herdr looks
   (PATH, the login shell's PATH, `~/.local/bin`, Homebrew, mise, Nix,
   cargo). Read at start.

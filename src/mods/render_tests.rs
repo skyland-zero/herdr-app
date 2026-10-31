@@ -108,7 +108,13 @@ fn fixture(populated: bool, props: Value, update: Value) -> BTreeMap<String, Val
 
 fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostModule {
     let mut module = HostModule::new("herdr");
+    // What `~/.config/obsidian/obsidian.json` holds, when a test says Obsidian is installed.
+    // A `_` key is fixture-only: it never becomes a host function.
+    let obsidian = values.get("_obsidian").cloned().unwrap_or(Value::Null);
     for (name, value) in values {
+        if name.starts_with('_') {
+            continue;
+        }
         module = module.function(name, move |_| Ok(to_host(&value)));
     }
     module = module.function("feedbackPreview", |a| {
@@ -156,12 +162,22 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
     }
     for name in ["exec", "hc", "readTextFile", "readDir", "writeTextFile", "sendFeedback"] {
         let calls = calls.clone();
+        let obsidian = obsidian.clone();
         module = module.async_function(name, move |a| {
             let first = a.get(0).map(from_host).unwrap_or(Value::Null);
+            // Opening a URI hands it to the system: recorded, and never a failure.
+            if name == "exec" && matches!(first.as_str(), Some("cmd" | "open" | "xdg-open")) {
+                calls
+                    .borrow_mut()
+                    .effects
+                    .push((name.into(), (0..2).filter_map(|i| a.get(i).map(from_host)).collect()));
+            }
             let reply = match name {
+                "exec" if matches!(first.as_str(), Some("cmd" | "open" | "xdg-open")) => Some(json!({"code":0,"stdout":"","stderr":""})),
                 "readTextFile" if first == "/fixture/app/settings.json" || first == "/fixture/.ssh/config" => Some(Value::Null),
                 // A file the Files panel can open in a tab.
                 "readTextFile" if first == "/fixture/project/README.md" => Some(json!("# fixture\n")),
+                "readTextFile" if first == "/fixture/.config/obsidian/obsidian.json" => Some(obsidian.clone()),
                 "readTextFile" => first
                     .as_str()
                     .and_then(|p| p.strip_prefix("/fixture/app/layouts/"))
@@ -697,6 +713,25 @@ fn files_panel_opens_a_file_in_a_tab(cx: &mut TestAppContext) {
     assert_eq!(args[1]["name"], json!("README.md"));
     assert_eq!(args[1]["props"]["file"], json!("/fixture/project/README.md"));
     assert!(args[1]["props"].get("on").is_none(), "a local file opens on this machine");
+}
+
+#[gpui::test]
+fn files_panel_opens_markdown_in_obsidian(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    // Obsidian holds this folder as a vault, so a URI wakes the running app.
+    let mut values = fixture(true, props(), updates("current", "current"));
+    values.insert("_obsidian".into(), json!(r#"{"vaults":{"a":{"path":"/fixture/project"}}}"#));
+    let effects = files_row(cx, &staged, values, 90., true);
+    let (_, args) = effects
+        .iter()
+        .find(|(name, args)| name == "exec" && args.first() == Some(&json!("xdg-open")))
+        .unwrap_or_else(|| panic!("a Markdown file a vault holds goes to Obsidian: {effects:?}"));
+    assert_eq!(args[1], json!(["obsidian://open?path=%2Ffixture%2Fproject%2FREADME.md"]));
+    assert!(
+        !effects.iter().any(|(name, args)| name == "run" && args.first() == Some(&json!("tab.new"))),
+        "Obsidian has it, so no tab: {effects:?}"
+    );
 }
 
 #[gpui::test]

@@ -1,7 +1,7 @@
 // A lazy file browser for the focused pane's folder, with bounded read-only previews.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState } from "gpui-base";
-import { spaces, panes, focused, exec, readDir, readTextFile, watchFolder, theme, settings, run, window, notify, props } from "herdr";
+import { spaces, panes, focused, exec, readDir, readTextFile, watchFolder, theme, settings, run, window, notify, props, home } from "herdr";
 
 function location() {
   const space = spaces().find(s => s.active), f = focused();
@@ -12,6 +12,8 @@ function location() {
 const key = () => JSON.stringify(location());
 const LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html" };
 const PER_FOLDER = 500, TOTAL = 5000;
+// A click on one of these hands it to Obsidian when a vault holds it.
+const MARKDOWN = new Set(["md", "markdown"]);
 // git and Windows watchers name paths their own way (`D:/…`, `\\?\D:\…`):
 // compare them in one shape.
 const slashed = path => (path ?? "").replaceAll("\\", "/");
@@ -19,6 +21,36 @@ const plain = path => slashed(path).replace(/^\/\/\?\/UNC\//i, "//").replace(/^\
 
 async function directory(path, on) {
   return (await readDir(path, { on })).filter(entry => entry.name !== ".git");
+}
+
+// The folders Obsidian calls vaults, from its own config; null when it isn't
+// installed. It opens a note in the running app through a URI, but only one a
+// vault holds: outside them the URI just makes an empty tab.
+let VAULTS, VAULTS_AT = 0;
+async function vaults() {
+  // Re-read now and then: a vault added in Obsidian should work without a restart.
+  if (VAULTS && Date.now() - VAULTS_AT < 10000) return VAULTS;
+  VAULTS = null;
+  const platform = window()?.platform;
+  const where = { windows: "AppData\\Roaming\\obsidian\\obsidian.json", macos: "Library/Application Support/obsidian/obsidian.json" }[platform] ?? ".config/obsidian/obsidian.json";
+  try {
+    const config = JSON.parse(await readTextFile(`${home().replace(/[\\/]+$/, "")}${platform === "windows" ? "\\" : "/"}${where}`));
+    VAULTS = Object.values(config.vaults ?? {}).map(vault => plain(vault.path).replace(/\/+$/, "")).filter(Boolean);
+    VAULTS_AT = Date.now();
+  } catch { /* no Obsidian: Markdown stays in Herdr */ }
+  return VAULTS;
+}
+
+// Hands a URI to the system, which wakes the app that owns it. `start` and
+// `open` return at once: `exec` would otherwise wait for that app to quit.
+async function openUri(uri) {
+  const platform = window()?.platform;
+  try {
+    if (platform === "windows") await exec("cmd", ["/c", "start", "", uri]);
+    else if (platform === "macos") await exec("open", [uri]);
+    else await exec("xdg-open", [uri]);
+    return true;
+  } catch { return false; }
 }
 
 export default class Files extends View {
@@ -30,6 +62,7 @@ export default class Files extends View {
     this.viewer = p?.file ? { file: p.file, on: p.on ?? null } : null;
     if (this.viewer) { this.loadViewer(cx); return; }
     this.saved = new Map();
+    this.hinted = new Set();
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {}; this.marksToken = 0;
     this.refresh(cx);
     // The folder watch keeps an open panel live; the timer is for when it can't
@@ -178,10 +211,28 @@ export default class Files extends View {
     cx.notify();
   }
 
-  // A click on a file: a tab of its own (the setting), or the panel's preview.
-  open(path, cx) {
+  // A click on a file: Markdown in Obsidian when a vault holds it, else a tab of
+  // its own (the setting), else the panel's preview.
+  async open(path, cx) {
     if (settings().files_open_in_tab === false) return this.show(path, cx);
+    const ext = (path.includes(".") ? path.split(".").pop() : "").toLowerCase();
+    if (!this.on && MARKDOWN.has(ext) && (await this.inObsidian(path))) return;
     this.openTab(path, cx);
+  }
+
+  async inObsidian(path) {
+    const roots = await vaults();
+    if (!roots?.length) return false;
+    const file = this.full(path), flat = plain(file).toLowerCase();
+    if (!roots.some(root => flat.startsWith(root.toLowerCase() + "/"))) {
+      // Once per folder: the way in is Obsidian's own, not a URI's.
+      if (!this.hinted.has(this.root)) {
+        this.hinted.add(this.root);
+        notify({ title: path, body: `Not in an Obsidian vault. Add ${this.root} as one (Open folder as vault) to open Markdown there.`, level: "info" });
+      }
+      return false;
+    }
+    return openUri(`obsidian://open?path=${encodeURIComponent(file)}`);
   }
 
   // Only text opens a tab: a binary or too-large file would show nothing there,
