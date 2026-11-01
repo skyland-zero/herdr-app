@@ -281,18 +281,17 @@ jobs:
     if: >-
       !cancelled() && needs.build.result == 'success' && needs.sign-windows.result != 'failure'
       && needs.ci-passed.result == 'success'
-      && github.event_name == 'push' && github.ref_type == 'tag' && github.triggering_actor == 'ogulcancelik'
-    # The R2 keys live here, usable only from v* tags.
-    environment: release
+      && github.event_name == 'push' && github.ref_type == 'tag' && github.triggering_actor == github.repository_owner
+    # Creating the release needs the API token, and nothing else.
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: auto
-      ENDPOINT: https://${{ vars.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
-      BUCKET: ${{ vars.R2_BUCKET }}
-      RELEASES_URL: ${{ vars.RELEASES_URL }}
+      GH_TOKEN: ${{ github.token }}
+      # This fork's releases page is the feed: `latest/download/latest.json` for
+      # the manifest, `download/v<version>/<target>.tar.gz` for a build.
+      RELEASES_URL: https://github.com/${{ github.repository }}/releases
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -316,22 +315,19 @@ jobs:
           targets = {}
           for f in sorted(pathlib.Path("dist").glob("herdr-app-*.tar.gz")):
               t = f.name.removeprefix("herdr-app-").removesuffix(".tar.gz")
-              targets[t] = {"url": f"{base}/app/{version}/{f.name}", "sha256": hashlib.sha256(f.read_bytes()).hexdigest()}
+              targets[t] = {"url": f"{base}/download/v{version}/{f.name}", "sha256": hashlib.sha256(f.read_bytes()).hexdigest()}
           # core_min: the oldest core this app works with.
           doc = {"version": version, "core_min": core, "notes": f"Herdr {version}", "targets": targets}
-          pathlib.Path("dist/manifest.json").write_text(json.dumps(doc, indent=2) + "\n")
+          pathlib.Path("dist/latest.json").write_text(json.dumps(doc, indent=2) + "\n")
           print(json.dumps(doc, indent=2))
           PY
-      - name: Upload
+          # The app reads this as the release notes for the version it offers.
+          cp CHANGELOG.md dist/changelog.md
+      - name: Publish the release
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          s3() { aws s3 cp --endpoint-url "$ENDPOINT" "$@"; }
-          for f in dist/herdr-app-*.tar.gz dist/manifest.json; do
-            s3 "$f" "s3://$BUCKET/app/$version/$(basename "$f")" --cache-control "public, max-age=31536000, immutable"
-          done
-          s3 CHANGELOG.md "s3://$BUCKET/app/$version/changelog.md" --cache-control "public, max-age=31536000, immutable" --content-type text/markdown
-          s3 dist/manifest.json "s3://$BUCKET/app/latest.json" --cache-control "no-cache" --content-type application/json
-          # 0.1.0/0.1.1 set to the preview channel still ask here.
-          s3 dist/manifest.json "s3://$BUCKET/app/preview/latest.json" --cache-control "no-cache" --content-type application/json
-          s3 distribution/install.sh "s3://$BUCKET/app/install.sh" --cache-control "no-cache" --content-type text/x-shellscript
-          s3 distribution/install.ps1 "s3://$BUCKET/app/install.ps1" --cache-control "no-cache" --content-type text/plain
+          # What the release page and the app's notes show: this version's section.
+          awk -v v="$version" 'BEGIN { on = 0 } $0 ~ "^## \\[" v "\\]" { on = 1; next } on && /^## / { exit } on' CHANGELOG.md > dist/notes.md
+          # One release: its assets are the whole feed, so nobody sees a half upload.
+          gh release create "$GITHUB_REF_NAME" --title "Herdr $version" --notes-file dist/notes.md --latest \
+            dist/herdr-app-*.tar.gz dist/latest.json dist/changelog.md

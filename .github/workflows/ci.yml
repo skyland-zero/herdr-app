@@ -6,7 +6,7 @@ name: ci
 
 on:
   push:
-    branches: [master]
+    branches: [master, personal]
   # No paths-ignore here: CI is required to merge, so every PR needs it.
   pull_request:
 

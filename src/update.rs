@@ -1,5 +1,6 @@
 //! The app's own updates. An installed app (Linux: `~/.local/share/herdr-app`,
-//! macOS: `Herdr.app`) checks `releases.herdr.dev/app/latest.json` a little
+//! macOS: `Herdr.app`) checks this fork's GitHub Releases
+//! (`releases/latest/download/latest.json`) a little
 //! after it opens and every hour, downloads a newer build for this
 //! machine, checks its sha256 and unpacks it next to itself (`<install>.new`).
 //! The frame then shows "Restart"; the swap happens on restart or the next
@@ -69,8 +70,17 @@ fn target() -> String {
     format!("{os}-{}", std::env::consts::ARCH)
 }
 
+/// Where this fork's app builds come from: its GitHub Releases, as
+/// `releases/latest/download/latest.json` for the manifest and one asset per
+/// target under `releases/download/v<version>/`. Upstream's bucket holds
+/// upstream's builds, so a build from there never updates to one of these.
 fn releases() -> String {
-    std::env::var("HERDR_RELEASES_URL").unwrap_or_else(|_| "https://releases.herdr.dev".into())
+    std::env::var("HERDR_RELEASES_URL").unwrap_or_else(|_| "https://github.com/skyland-zero/herdr-app/releases".into())
+}
+
+/// The core is upstream's program, so its feed stays upstream whatever this fork does.
+fn core_releases() -> String {
+    std::env::var("HERDR_CORE_RELEASES_URL").unwrap_or_else(|_| "https://releases.herdr.dev".into())
 }
 
 /// The version downloaded and waiting for a restart.
@@ -222,7 +232,7 @@ struct CoreRelease {
 }
 
 fn latest_core() -> Result<CoreRelease, String> {
-    let text = curl_text(&format!("{}/core/latest.json", releases()))?;
+    let text = curl_text(&format!("{}/core/latest.json", core_releases()))?;
     serde_json::from_str(&text).map_err(|e| format!("core/latest.json: {e}"))
 }
 
@@ -270,7 +280,7 @@ fn check(root: &Path) -> Result<Option<String>, String> {
 }
 
 fn check_from(root: &Path, releases: &str) -> Result<Option<String>, String> {
-    let path = "app/latest.json";
+    let path = "latest/download/latest.json";
     let text = curl_text(&format!("{releases}/{path}"))?;
     let manifest: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
     let version = manifest["version"].as_str().ok_or(format!("{path}: no version"))?;
@@ -279,7 +289,7 @@ fn check_from(root: &Path, releases: &str) -> Result<Option<String>, String> {
     }
     // Notes are optional: a missing feed must never hold up the update.
     if !crate::update_notes::has(version)
-        && let Ok(text) = curl_text(&format!("{releases}/app/{version}/changelog.md"))
+        && let Ok(text) = curl_text(&format!("{releases}/download/v{version}/changelog.md"))
     {
         crate::update_notes::cache(&text);
     }
@@ -627,7 +637,7 @@ mod tests {
                     stream.read_exact(&mut byte).unwrap();
                     request.push(byte[0]);
                 }
-                assert!(request.starts_with(b"GET /app/latest.json HTTP/1.1\r\n"));
+                assert!(request.starts_with(b"GET /latest/download/latest.json HTTP/1.1\r\n"));
                 if recover {
                     let body = format!(r#"{{"version":"{}"}}"#, env!("CARGO_PKG_VERSION"));
                     write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
