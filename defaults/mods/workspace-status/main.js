@@ -1,6 +1,6 @@
 import { View, div, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, agents, theme, run, window, shared, openOverlay } from "herdr";
+import { spaces, agents, theme, run, window, shared, openOverlay, keys } from "herdr";
 
 // OpenCode Go usage, when the person turned it on (`shared("opencode-usage")`,
 // set by the `opencode-usage` mod's rows). Its numbers come from the cache that
@@ -65,6 +65,17 @@ export default class WorkspaceStatus extends View {
       .children(WINDOWS.map(([key, label]) => this.usageWindow(key, label, last.usage, t)));
   }
 
+  // The palette key as actually bound, not a hardcoded one; without a
+  // binding the hint stays useful ("commands") instead of lying.
+  hint(t) {
+    const mac = window()?.platform === "macos";
+    const mod = { cmd: mac ? "⌘" : "Ctrl+", ctrl: mac ? "⌃" : "Ctrl+", shift: mac ? "⇧" : "Shift+", alt: mac ? "⌥" : "Alt+", option: mac ? "⌥" : "Alt+" };
+    const b = keys().find((k) => k.section === "global" && k.action === "app.palette");
+    const parts = b && b.keys.endsWith("--") ? [...b.keys.slice(0, -2).split("-"), "-"] : b?.keys.split("-");
+    const key = parts && parts.map((p) => mod[p.toLowerCase()] ?? p.toUpperCase()).join("");
+    return key ? `${key}  commands` : "commands";
+  }
+
   render() {
     const t = theme();
     const space = spaces().find(s => s.active);
@@ -78,6 +89,6 @@ export default class WorkspaceStatus extends View {
         .when(needs > 0, el => el.child(div().text_color(t.blocked).child(`· ${needs} needs you`))))
       .when(Boolean(shared("opencode-usage")), el => el.child(this.usage(t)))
       .child(div().flex_1())
-      .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(`${window()?.platform === "macos" ? "⌘" : "Ctrl"} Shift P  commands`));
+      .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(this.hint(t)));
   }
 }
