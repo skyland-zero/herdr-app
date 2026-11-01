@@ -1,9 +1,27 @@
 # Herdr changelog
 
-## [Unreleased]
+## [0.1.12] - 2026-11-01
 
 ### New
 - An OpenCode usage window (`ctrl-alt-u`) shows the OpenCode Go plan's 5-hour, weekly and monthly windows with their reset countdowns. It reads a Go key from the local `opencode` server and sends only that key, to `opencode.ai`; nothing is written down. On the status bar the same numbers appear when `shared.json` has `"opencode-usage": true`.
+- A file dragged from the Files panel into a terminal pastes its path there.
+- A click in the Files panel opens the file in a tab of its own; Markdown opens in Obsidian when one of its vaults holds it.
+- Pinned and seen agents follow you between Herdr clients: the terminal carries them, so another window shows the same pins.
+- On macOS, Settings → Keyboard chooses what Option does, and `"left"` / `"right"` makes only that one act as Alt.
+
+### Fixed
+- The Files panel reads folders natively, so non-ASCII names stay right and folders open at once.
+- A Files viewer tab shows the file, not the browser.
+- Mod pictures and icons update when their file is saved.
+- Horizontal scrolling reaches programs that track the mouse, like nvim and tmux.
+- Rounded corners are drawn as arcs and dashed box lines as dashes. (#255)
+- On Windows, Escape stays separate in win32 input mode. (#162)
+- Ctrl+Insert and Shift+Insert copy and paste in terminals. (#258)
+- A remote machine's login shell is loaded when checking for and launching agents, so its PATH has the tools set up there. (#262)
+- On Linux, folder watching skips Git-ignored trees and lets go of very large ones; the Files panel falls back to its timer.
+- The + menu shows the last known agents while it checks again. (#251)
+- The sidebar header lines up with the sidebar in full screen on macOS. (#261)
+- On Windows, install.sh in Git Bash points at the PowerShell installer. (#238)
 
 ## [0.1.11] - 2026-10-31
 
