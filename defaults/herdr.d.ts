@@ -23,8 +23,8 @@ export function appHome(): string;
 /** Reads UTF-8 text (up to 1 MiB), or null if absent. Runs off the UI thread.
  *  `on`: from that machine (a space's `machine`). */
 export function readTextFile(path: string, options?: { on?: string | null }): Promise<string | null>;
-/** One row of a folder: its name, and whether it is a folder. A symlink to a
- *  folder counts as a file, as the files panel shows it. */
+/** One row of a folder: its name, and whether it is a folder. A link to a
+ *  folder counts as a folder when it resolves; a dangling one does not. */
 export interface DirEntry {
   name: string;
   dir: boolean;
@@ -405,6 +405,9 @@ export function setShared(key: string, value: unknown): null;
 
 /**
  * Waits for the next key command for this mod ("alt-s": "<mod>:<command>" in keys.json).
+ * With "focusable": true in mod.json, pane.go can move onto this copy and send "focus".
+ * Focus your own handle then (this.handle.focus()) and handle keys with on_key_down.
+ * The copy gets "focus" again when a popup over it closes. Leave with pane.go.
  *   cx.spawn(async (cx) => { for (;;) { const c = await nextCommand(); ...; cx.notify(); } });
  */
 export function nextCommand(): Promise<string>;

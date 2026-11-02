@@ -23,8 +23,8 @@ pub fn read(path: &Path) -> Result<Option<String>, String> {
     Ok(Some(text))
 }
 
-/// One row of a folder: a name, and whether it is a folder. A symlink to a
-/// folder counts as a file, the way the files panel has always shown it.
+/// One row of a folder: a name, and whether it is a folder. A link to a folder
+/// counts as a folder; a dangling link does not.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub name: String,
@@ -36,9 +36,19 @@ pub fn list(path: &Path) -> Result<Vec<Entry>, String> {
     let mut entries = Vec::new();
     for entry in std::fs::read_dir(path).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
+        let kind = entry.file_type();
+        let dir = match &kind {
+            Ok(kind) if kind.is_dir() => true,
+            // A directory link has no directory attribute of its own, and a
+            // dangling one has no target: only follow a link that resolves.
+            Ok(kind) if kind.is_symlink() => {
+                std::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir())
+            }
+            _ => false,
+        };
         entries.push(Entry {
             name: entry.file_name().to_string_lossy().into_owned(),
-            dir: entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false),
+            dir,
         });
     }
     entries.sort_by(|a, b| a.name.cmp(&b.name));
@@ -194,6 +204,42 @@ mod tests {
         assert!(entries.iter().find(|e| e.name == "中文目录").unwrap().dir);
         assert!(!entries.iter().find(|e| e.name == "b.txt").unwrap().dir);
         assert!(list(&root.join("missing")).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    // A directory link opens as a folder; one that leads nowhere stays a file.
+    #[cfg(unix)]
+    #[test]
+    fn lists_a_directory_link_as_a_folder() {
+        let root = std::env::temp_dir().join(format!("herdr-app-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("versions/0.1.0")).unwrap();
+        std::os::unix::fs::symlink("versions", root.join("current")).unwrap();
+        std::os::unix::fs::symlink(root.join("missing"), root.join("dangling")).unwrap();
+        let entries = list(&root).unwrap();
+        assert!(entries.iter().find(|e| e.name == "current").unwrap().dir);
+        assert!(!entries.iter().find(|e| e.name == "dangling").unwrap().dir);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    // A junction needs no privilege, unlike a directory symlink: this is the part
+    // of the link story Windows can be tested on.
+    #[cfg(windows)]
+    #[test]
+    fn lists_a_directory_junction_as_a_folder() {
+        let root = std::env::temp_dir().join(format!("herdr-app-junction-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("versions/0.1.0")).unwrap();
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(root.join("current"))
+            .arg(root.join("versions"))
+            .output()
+            .expect("mklink");
+        assert!(made.status.success(), "{}", String::from_utf8_lossy(&made.stdout));
+        let entries = list(&root).unwrap();
+        assert!(entries.iter().find(|e| e.name == "current").unwrap().dir);
+        assert!(entries.iter().find(|e| e.name == "versions").unwrap().dir);
         std::fs::remove_dir_all(root).unwrap();
     }
 }
