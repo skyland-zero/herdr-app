@@ -1,5 +1,32 @@
 # Herdr changelog
 
+## [0.1.13] - 2026-11-02
+
+### New
+- Mods can take the keyboard: a mod whose `mod.json` says `"focusable": true` gets it when `pane.go` moves onto a copy, handles its own keys, and hands it back when you leave. (#283, thanks @Osc100)
+- The sidebar reconnects a machine that was rebuilt or replaced, and keeps a failed attempt to retry instead of starting over.
+- Update notes show only what applies to your operating system.
+- Pig agents show their own icon and name, and start from the new agent menu. (#299, thanks @balcsida)
+
+### Fixed
+- Emoji draw in color: COLRv1 emoji render, and a color glyph with nothing in it falls back to its outline instead of vanishing.
+- Emoji that ask for a wide, colored form draw wide and in color. (#287, thanks @occultsound)
+- Nerd font icons use the terminal font you chose.
+- Braille patterns draw as cell-sized sprites, in line with the text around them.
+- Programs that ask for the terminal size get it right when in-band resizing is on.
+- Mods no longer redraw when something unrelated to them changes, and update notes are read once.
+- Virtual lists and drawn paths follow the window zoom. (#296, thanks @Calonca)
+- The Files panel opens a directory link as a folder, loading its contents only when you expand it. (#301, thanks @azaeldrm)
+- The Files panel marks the files inside a new folder. (#309, thanks @Nagell)
+- A new tab with no space open starts a space instead of failing. (#303, thanks @sundarshahi)
+- Moving focus back into a column split lands on its top pane. (#304, thanks @sundarshahi)
+- A new space is created on the machine you're working in.
+- The agents sidebar shows an unnamed tab's terminal title, not its tab number. (#281, thanks @sundarshahi)
+- Grok Build shows its own icon. (#293, thanks @Zynoo71)
+- A malformed target id is refused before it closes the work that's open. (#297, thanks @chanyang721)
+- On macOS, programs in Herdr terminals can ask the system to control other apps. (#252)
+- On macOS, terminal programs can use the microphone and camera. (#137, thanks @shivanandasai-altir)
+
 ## [0.1.12] - 2026-11-01
 
 ### New
