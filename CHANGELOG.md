@@ -1,5 +1,10 @@
 # Herdr changelog
 
+## [0.1.14] - 2026-11-02
+
+### New
+- On Windows, a double-click installer (`herdr-app-windows-x86_64-setup.exe`) installs Herdr without a script: it puts the app in the same place, adds it to your PATH and the Start menu, and uninstalls from Settings → Apps. The PowerShell installer writes the same thing, so either one updates the other.
+
 ## [0.1.13] - 2026-11-02
 
 ### New
