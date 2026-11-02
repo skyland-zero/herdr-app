@@ -25,6 +25,8 @@ Run in PowerShell on x64 Windows with curl and tar installed (Windows 10 1803 or
 irm https://github.com/skyland-zero/herdr-app/releases/latest/download/install.ps1 | iex
 ```
 
+Or download [herdr-app-windows-x86_64-setup.exe](https://github.com/skyland-zero/herdr-app/releases/latest/download/herdr-app-windows-x86_64-setup.exe) and double-click it; the two write the same install, so either one updates the other.
+
 Herdr appears in the Start menu. The installer adds `%LOCALAPPDATA%\Programs\herdr-app` to your user PATH. Open a new terminal to pick it up.
 
 This fork builds its own releases, and these installers come from the newest one; the app then updates from that same release page. The core is upstream's program, so its installer (and engine) is [upstream's](https://releases.herdr.dev).

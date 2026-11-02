@@ -135,6 +135,15 @@ jobs:
           APPLE_CERTIFICATE_P12: ${{ runner.os == 'macOS' && github.ref_type == 'tag' && secrets.APPLE_CERTIFICATE_P12 || '' }}
           APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && github.ref_type == 'tag' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
         run: scripts/package
+      # The double-click installer, from the same folder: it writes what
+      # install.ps1 writes, so either one installs and the other updates.
+      - name: Windows setup.exe
+        if: runner.os == 'Windows'
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          choco install innosetup --no-progress -y
+          scripts/setup-exe
       - name: Verify release notices
         run: |
           archive="dist/herdr-app-${{ matrix.target }}.tar.gz"
@@ -157,7 +166,11 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: herdr-app-${{ matrix.target }}
-          path: dist/herdr-app-${{ matrix.target }}.tar.gz
+          # The setup.exe rides along on Windows; a target without one just
+          # uploads its tarball.
+          path: |
+            dist/herdr-app-${{ matrix.target }}.tar.gz
+            dist/herdr-app-${{ matrix.target }}-setup.exe
           if-no-files-found: error
           retention-days: 7
 
@@ -326,6 +339,11 @@ jobs:
               targets[t] = {"url": f"{base}/download/v{version}/{f.name}", "sha256": hashlib.sha256(f.read_bytes()).hexdigest()}
           # core_min: the oldest core this app works with.
           doc = {"version": version, "core_min": core, "notes": f"Herdr {version}", "targets": targets}
+          # The double-click installer is a convenience, not what the app
+          # updates from: the tarball above stays the one the manifest names.
+          setups = {f.stem.removeprefix("herdr-app-").removesuffix("-setup"): f.name for f in pathlib.Path("dist").glob("herdr-app-*-setup.exe")}
+          if setups:
+              doc["setups"] = {t: f"{base}/download/v{version}/{name}" for t, name in setups.items()}
           pathlib.Path("dist/latest.json").write_text(json.dumps(doc, indent=2) + "\n")
           print(json.dumps(doc, indent=2))
           PY
@@ -341,4 +359,4 @@ jobs:
           cp distribution/install.sh distribution/install.ps1 dist/
           # One release: its assets are the whole feed, so nobody sees a half upload.
           gh release create "$GITHUB_REF_NAME" --title "Herdr $version" --notes-file dist/notes.md --latest \
-            dist/herdr-app-*.tar.gz dist/latest.json dist/changelog.md dist/install.sh dist/install.ps1
+            dist/herdr-app-*.tar.gz dist/herdr-app-*-setup.exe dist/latest.json dist/changelog.md dist/install.sh dist/install.ps1

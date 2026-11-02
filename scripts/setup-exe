@@ -1,0 +1,71 @@
+#!/bin/bash
+# Builds the app's Windows installer: dist/herdr-app-windows-x86_64-setup.exe.
+#
+#   scripts/setup-exe            -> setup.exe for the app scripts/package packed
+#   scripts/setup-exe <dir>      -> the same, packing another folder
+#
+# Needs Inno Setup 6 (ISCC.exe). It is a Windows tool, so this runs on Windows;
+# in CI it is the windows-x86_64 job, right after scripts/package.
+#
+# The installer is a thin wrapper over the folder scripts/package already
+# packs: same files, same layout as install.ps1 makes, so a person can install
+# with either and update with the other.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+[[ -n $version ]] || { echo "setup-exe: Cargo.toml has no version" >&2; exit 1; }
+
+app=${1:-dist/herdr-app}
+[[ -f $app/herdr-app.exe ]] || { echo "setup-exe: no $app/herdr-app.exe (run scripts/package first)" >&2; exit 1; }
+for notice in LICENSE THIRD-PARTY-NOTICES; do
+  [[ -s $app/$notice ]] || { echo "setup-exe: $app/$notice is missing or empty" >&2; exit 1; }
+done
+icon=assets/icons/herdr-app.ico
+[[ -f $icon ]] || { echo "setup-exe: $icon is missing" >&2; exit 1; }
+
+# ISCC from PATH, or from the usual places: the machine-wide install first,
+# then the per-user one winget makes.
+iscc=${ISCC:-}
+if [[ -z $iscc ]]; then
+  if command -v ISCC.exe >/dev/null 2>&1; then
+    iscc=$(command -v ISCC.exe)
+  else
+    for candidate in \
+      "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+      "/c/Program Files/Inno Setup 6/ISCC.exe" \
+      "$LOCALAPPDATA/Programs/Inno Setup 6/ISCC.exe"; do
+      [[ -f $candidate ]] && { iscc=$candidate; break; }
+    done
+  fi
+fi
+[[ -n $iscc ]] || {
+  echo "setup-exe: Inno Setup 6 is not installed (ISCC.exe comes with it);" >&2
+  echo "  choco install innosetup    # or: winget install --id JRSoftware.InnoSetup" >&2
+  exit 1
+}
+
+# ISCC takes Windows paths: one argument per define, each in its own words.
+winpath() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$1"
+  else
+    printf '%s' "$1" | sed 's|^/\([a-zA-Z]\)/|\1:/|'
+  fi
+}
+absolute() { (cd "$(dirname "$1")" && printf '%s/%s' "$(pwd)" "$(basename "$1")"); }
+
+mkdir -p dist
+echo "setup-exe: herdr-app $version from $app"
+# Git Bash turns a /D… argument into a Windows path, which ISCC reads as a
+# second script name; ISCC wants those defines exactly as written.
+MSYS2_ARG_CONV_EXCL='*' "$iscc" \
+  "/DVersion=$version" \
+  "/DSourceDir=$(winpath "$(absolute "$app")")" \
+  "/DIconFile=$(winpath "$(absolute "$icon")")" \
+  "/DOutputDir=$(winpath "$(absolute dist)")" \
+  "$(winpath "$(absolute distribution/windows/herdr-app.iss)")"
+
+out=dist/herdr-app-windows-x86_64-setup.exe
+[[ -f $out ]] || { echo "setup-exe: ISCC made no $out" >&2; exit 1; }
+echo "setup-exe: $out ($(wc -c < "$out" | tr -d ' ') bytes)"

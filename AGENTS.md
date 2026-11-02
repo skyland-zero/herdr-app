@@ -66,6 +66,13 @@ On Windows it updates `%LOCALAPPDATA%\Programs\herdr-app` and the Start menu;
 quit and reopen Herdr to use the new build. Windows recipes use PowerShell by default;
 `just --shell pwsh --shell-arg -Command <recipe>` uses pwsh.
 
+Windows releases ship two installers that write the same thing —
+`install.ps1` (a script) and `herdr-app-windows-x86_64-setup.exe` (double-click,
+built by `scripts/setup-exe` from the folder `scripts/package` packs, with
+Inno Setup) — so a user can install with one and update with the other. A
+change to what an install writes changes both; `scripts/test_distribution.py`
+and the Windows install notes in `defaults/AGENTS.md` are where that is checked.
+
 Never run a bare `target/*/herdr-app` (no arguments) on a machine where you
 also use the app without `HERDR_APP_HOME` pointing at a scratch home: it
 opens a second window on your real setup. Subcommands and `--help` only

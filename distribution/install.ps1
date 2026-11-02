@@ -8,6 +8,10 @@
 # again updates the app (an open one keeps running until it quits). No admin
 # needed. HERDR_RELEASES_URL points elsewhere (tests); the core's feed is
 # separate (HERDR_CORE_RELEASES_URL): it's upstream's program.
+#
+# The release also carries herdr-app-windows-x86_64-setup.exe, a double-click
+# installer that writes exactly what this script writes: use whichever you
+# like, and the other still updates that install.
 
 # Its own scope: under `irm | iex` it would otherwise set the caller's variables.
 & {
@@ -68,6 +72,14 @@ try {
     if (Test-Path $dir) { Rename-Item $dir "$dir.old" }
     Move-Item "$tmp\herdr-app" $dir
     Remove-Item -Recurse -Force "$dir.old" -ErrorAction SilentlyContinue
+
+    # setup.exe installs leave an uninstaller in this folder, filed under a
+    # key of its own. Replacing the folder takes the uninstaller with it, so
+    # that entry would point at files that are gone: drop it. It is found by
+    # where its uninstaller lives, so a changed AppId cannot strand one.
+    Get-ChildItem "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall" -ErrorAction SilentlyContinue |
+        Where-Object { [string]$_.GetValue("UninstallString") -like "*$dir\*" } |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
     $exe = Join-Path $dir "herdr-app.exe"
     $menu = Join-Path ([Environment]::GetFolderPath("Programs")) "Herdr.lnk"

@@ -671,6 +671,10 @@ What's about the user, never a look:
   Mods use `updates().notes` and `presentUpdateNotes([version])` only
   for spotlight entries actually shown expanded, not collapsed headlines.
   macOS releases require Apple Silicon; Intel Macs must build from source.
+  On Windows a release installs from either
+  `herdr-app-windows-x86_64-setup.exe` (double-click) or `install.ps1`
+  (`irm ... | iex`); both write `%LOCALAPPDATA%\Programs\herdr-app`, the
+  Start menu's Herdr and the user PATH, so updates take either way.
   Keep signed macOS bundles unchanged: don't edit their Info.plist or
   re-sign them. On launch, an installed macOS bundle creates or repairs its
   own `~/.local/bin/herdr-app` symlink, leaving personal files and other

@@ -295,6 +295,46 @@ printf 'dev PATH added' >> "$3"''')
                 self.assertIn("unexpected build", result.stderr)
                 self.assertNotIn("Intel Macs", result.stderr)
 
+    # The Windows wizard and the Windows script are two ways to write one
+    # install: a person may install with either and update with the other. These
+    # check that neither drifts away from the other's folder and shortcut.
+    def iss(self):
+        return (ROOT / "distribution/windows/herdr-app.iss").read_text()
+
+    def install_ps1(self):
+        return (ROOT / "distribution/install.ps1").read_text()
+
+    def test_windows_setup_and_script_install_to_the_same_folder(self):
+        self.assertIn('Join-Path $env:LOCALAPPDATA "Programs\\herdr-app"', self.install_ps1())
+        self.assertIn("DefaultDirName={localappdata}\\Programs\\herdr-app", self.iss())
+
+    def test_windows_setup_and_script_make_the_same_start_menu_entry(self):
+        self.assertIn('"Herdr.lnk"', self.install_ps1())
+        self.assertIn('Name: "{userprograms}\\Herdr"', self.iss())
+
+    def test_windows_setup_needs_no_admin_like_the_script(self):
+        # install.ps1 touches only HKCU and %LOCALAPPDATA%, so an elevated
+        # install would put the app somewhere the app's own updates cannot write.
+        self.assertNotIn("RunAs", self.install_ps1())
+        self.assertIn("PrivilegesRequired=lowest", self.iss())
+
+    def test_windows_setup_keeps_the_path_type_and_other_entries(self):
+        iss = self.iss()
+        # RegWriteStringValue keeps a REG_EXPAND_SZ value's type; RegWriteExpandStringValue
+        # would force it, turning a REG_SZ PATH into one with unexpanded text.
+        self.assertNotIn("RegWriteExpandStringValue", iss)
+        self.assertNotIn("RegWriteMultiStringValue", iss)
+        self.assertIn("RegWriteStringValue(HKEY_CURRENT_USER, EnvironmentKey, PathValue", iss)
+        self.assertIn("RegDeleteValue(HKEY_CURRENT_USER, EnvironmentKey, 'HERDR_INSTALLING')", iss)
+
+    def test_windows_setup_is_named_for_the_manifest_target(self):
+        self.assertIn("OutputBaseFilename=herdr-app-windows-x86_64-setup", self.iss())
+        # The manifest names the tarball the app updates from; the wizard is a
+        # convenience beside it, so the two must not be confused for each other.
+        release = (ROOT / ".github/workflows/release.yml").read_text()
+        self.assertIn("dist/herdr-app-*.tar.gz dist/herdr-app-*-setup.exe", release)
+        self.assertIn('setups = {f.stem.removeprefix("herdr-app-").removesuffix("-setup")', release)
+
 
 if __name__ == "__main__":
     unittest.main()
