@@ -4,6 +4,11 @@
 # releases bucket, versioned files first and app/latest.json last, so nobody
 # sees a version whose files aren't there yet.
 #
+# This fork publishes Windows x86_64 only: the Linux and macOS entries in the
+# matrix (and mac-dmg below) are commented out, not deleted, so a later
+# release can ship them again by uncommenting. The app's own updater reads the
+# manifest's targets one by one, so a release with one target is complete.
+#
 # Caches: a tag's own cache is visible only to that tag, so tags restore
 # master's. Master keeps them warm by building (without publishing) when
 # what the build depends on changes: Cargo.lock, the vendored crates, the
@@ -67,9 +72,10 @@ jobs:
         include:
           # Linux on the oldest Ubuntu we can: the app links the system's
           # glibc, so this sets how old a distro it runs on.
-          - { target: linux-x86_64, runner: ubuntu-22.04 }
-          - { target: linux-aarch64, runner: ubuntu-22.04-arm }
-          - { target: macos-aarch64, runner: macos-15 }
+          # This fork ships Windows x86_64 only; uncomment to build the rest.
+          # - { target: linux-x86_64, runner: ubuntu-22.04 }
+          # - { target: linux-aarch64, runner: ubuntu-22.04-arm }
+          # - { target: macos-aarch64, runner: macos-15 }
           - { target: windows-x86_64, runner: windows-2022 }
     runs-on: ${{ matrix.runner }}
     # Only tags can access the release environment's Apple certificate.
@@ -235,44 +241,45 @@ jobs:
           retention-days: 7
 
   # A website download, never a dependency of update publishing below.
-  mac-dmg:
-    needs: [build, ci-passed]
-    if: github.event_name == 'push' && github.ref_type == 'tag' && github.triggering_actor == 'ogulcancelik'
-    environment: release
-    runs-on: macos-15
-    timeout-minutes: 40
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: herdr-app-macos-aarch64
-          path: dist
-      - name: Install DMG tools
-        run: brew install create-dmg jq awscli
-      - name: Build, sign, notarize and verify DMG
-        env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: |
-          tar -xzf dist/herdr-app-macos-aarch64.tar.gz -C dist
-          scripts/mac-dmg dist/Herdr.app dist/Herdr.dmg
-      - name: Upload website download
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          ENDPOINT: https://${{ vars.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          BUCKET: ${{ vars.R2_BUCKET }}
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          aws s3 cp --endpoint-url "$ENDPOINT" dist/Herdr.dmg "s3://$BUCKET/app/$version/Herdr.dmg" --cache-control "public, max-age=31536000, immutable" --content-type application/x-apple-diskimage
-          aws s3 cp --endpoint-url "$ENDPOINT" dist/Herdr.dmg "s3://$BUCKET/app/Herdr.dmg" --cache-control "no-cache" --content-type application/x-apple-diskimage
+  # Off while this fork ships Windows only; uncomment with its matrix entry.
+  # mac-dmg:
+  #   needs: [build, ci-passed]
+  #   if: github.event_name == 'push' && github.ref_type == 'tag' && github.triggering_actor == 'ogulcancelik'
+  #   environment: release
+  #   runs-on: macos-15
+  #   timeout-minutes: 40
+  #   continue-on-error: true
+  #   steps:
+  #     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  #       with:
+  #         persist-credentials: false
+  #     - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+  #       with:
+  #         name: herdr-app-macos-aarch64
+  #         path: dist
+  #     - name: Install DMG tools
+  #       run: brew install create-dmg jq awscli
+  #     - name: Build, sign, notarize and verify DMG
+  #       env:
+  #         APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+  #         APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+  #         APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+  #         APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+  #         APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+  #       run: |
+  #         tar -xzf dist/herdr-app-macos-aarch64.tar.gz -C dist
+  #         scripts/mac-dmg dist/Herdr.app dist/Herdr.dmg
+  #     - name: Upload website download
+  #       env:
+  #         AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  #         AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  #         AWS_DEFAULT_REGION: auto
+  #         ENDPOINT: https://${{ vars.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+  #         BUCKET: ${{ vars.R2_BUCKET }}
+  #       run: |
+  #         version="${GITHUB_REF_NAME#v}"
+  #         aws s3 cp --endpoint-url "$ENDPOINT" dist/Herdr.dmg "s3://$BUCKET/app/$version/Herdr.dmg" --cache-control "public, max-age=31536000, immutable" --content-type application/x-apple-diskimage
+  #         aws s3 cp --endpoint-url "$ENDPOINT" dist/Herdr.dmg "s3://$BUCKET/app/Herdr.dmg" --cache-control "no-cache" --content-type application/x-apple-diskimage
 
   publish:
     needs: [build, sign-windows, ci-passed]
