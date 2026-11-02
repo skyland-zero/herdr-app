@@ -29,6 +29,7 @@ on:
       - vendor/**
       - crates/**
       - scripts/package
+      - distribution/**
       - scripts/notices.*
       - tests/notices.rs
       - about.toml
@@ -328,6 +329,9 @@ jobs:
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           # What the release page and the app's notes show: this version's section.
           awk -v v="$version" 'BEGIN { on = 0 } $0 ~ "^## \\[" v "\\]" { on = 1; next } on && /^## / { exit } on' CHANGELOG.md > dist/notes.md
+          # The installers ride along: a GitHub releases page serves them under
+          # latest/download/, so installing needs no other host.
+          cp distribution/install.sh distribution/install.ps1 dist/
           # One release: its assets are the whole feed, so nobody sees a half upload.
           gh release create "$GITHUB_REF_NAME" --title "Herdr $version" --notes-file dist/notes.md --latest \
-            dist/herdr-app-*.tar.gz dist/latest.json dist/changelog.md
+            dist/herdr-app-*.tar.gz dist/latest.json dist/changelog.md dist/install.sh dist/install.ps1

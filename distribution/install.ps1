@@ -1,12 +1,13 @@
 # Installs the Herdr app on Windows, and herdr-core if there's none yet:
 #
-#   powershell -c "irm https://releases.herdr.dev/app/install.ps1 | iex"
+#   powershell -c "irm https://github.com/skyland-zero/herdr-app/releases/latest/download/install.ps1 | iex"
 #
 # The app into %LOCALAPPDATA%\Programs\herdr-app (added to your PATH for
 # `herdr-app`), Herdr in the Start menu. The core, with its own installer,
 # only if none is there yet; the app keeps it current after that. Running it
 # again updates the app (an open one keeps running until it quits). No admin
-# needed. HERDR_RELEASES_URL points elsewhere (tests).
+# needed. HERDR_RELEASES_URL points elsewhere (tests); the core's feed is
+# separate (HERDR_CORE_RELEASES_URL): it's upstream's program.
 
 # Its own scope: under `irm | iex` it would otherwise set the caller's variables.
 & {
@@ -16,7 +17,12 @@ $ProgressPreference = "SilentlyContinue"
 # throw, not exit: under `irm | iex`, exit would close the person's window.
 function Fail($why) { throw "herdr: $why" }
 
-$releases = if ($env:HERDR_RELEASES_URL) { $env:HERDR_RELEASES_URL.TrimEnd("/") } else { "https://releases.herdr.dev" }
+$releases = if ($env:HERDR_RELEASES_URL) { $env:HERDR_RELEASES_URL.TrimEnd("/") } else { "https://github.com/skyland-zero/herdr-app/releases" }
+$coreReleases = if ($env:HERDR_CORE_RELEASES_URL) { $env:HERDR_CORE_RELEASES_URL.TrimEnd("/") } else { "https://releases.herdr.dev" }
+# A GitHub releases page serves the manifest under latest/download/ and the
+# scripts as release assets; upstream's bucket keeps them under app/. Either
+# way the manifest's own urls are absolute, so only where it's found differs.
+$manifestUrl = if ($releases -like "*/releases") { "$releases/latest/download/latest.json" } else { "$releases/app/latest.json" }
 $dir = Join-Path $env:LOCALAPPDATA "Programs\herdr-app"
 $arch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
 if ($arch -ne "AMD64") { Fail "no build for $arch Windows yet (x64 only)" }
@@ -30,8 +36,8 @@ if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue) -or -not (Test-Pat
 $tmp = Join-Path ([IO.Path]::GetTempPath()) "herdr-install-$PID"
 New-Item -ItemType Directory -Force $tmp | Out-Null
 try {
-    curl.exe -fsSL "$releases/app/latest.json" -o "$tmp\latest.json"
-    if ($LASTEXITCODE) { Fail "cannot reach $releases" }
+    curl.exe -fsSL $manifestUrl -o "$tmp\latest.json"
+    if ($LASTEXITCODE) { Fail "cannot reach $manifestUrl" }
     $m = Get-Content -Raw "$tmp\latest.json" | ConvertFrom-Json
     $t = $m.targets.$target
     if (-not $t.url -or -not $t.sha256) { Fail "no build for $target yet" }
@@ -39,7 +45,8 @@ try {
     # Tells the release server's download counter a new install from a
     # reinstall; the file is the same either way. Only plain URLs on the
     # release server in use are marked: one with a query or fragment (a
-    # mirror's signed URL) is fetched exactly as the manifest gives it.
+    # mirror's signed URL, GitHub's own) is fetched exactly as the manifest
+    # gives it.
     $src = if (Test-Path $dir) { "reinstall" } else { "install" }
     $plain = $t.url.StartsWith("$releases/", [StringComparison]::Ordinal) -and $t.url.IndexOfAny([char[]]"?#") -lt 0
     $download = if ($plain) { "$($t.url)?src=$src" } else { $t.url }
@@ -89,8 +96,8 @@ try {
     $core = Join-Path $env:LOCALAPPDATA "Programs\herdr-core\herdr-core.exe"
     if (-not (Test-Path $core) -and -not (Get-Command herdr-core -ErrorAction SilentlyContinue)) {
         try {
-            $env:HERDR_RELEASES_URL = $releases
-            Invoke-RestMethod "$releases/core/install.ps1" | Invoke-Expression
+            $env:HERDR_RELEASES_URL = $coreReleases
+            Invoke-RestMethod "$coreReleases/core/install.ps1" | Invoke-Expression
         } catch {
             Write-Host "herdr-core didn't install; Herdr will offer it when it opens."
         }

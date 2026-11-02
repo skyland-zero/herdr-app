@@ -7,7 +7,7 @@ Herdr is a desktop app for terminals and coding agents. Keep work in spaces, see
 ### Linux and macOS
 
 ```sh
-curl -fsSL https://releases.herdr.dev/app/install.sh | sh
+curl -fsSL https://github.com/skyland-zero/herdr-app/releases/latest/download/install.sh | sh
 ```
 
 Linux needs a desktop session and a working Vulkan driver. macOS builds are available for Apple Silicon; Intel Mac users can [build from source](#build-from-source). Linux builds are x86-64 and ARM64.
@@ -22,10 +22,12 @@ For drag-and-drop installation on Apple Silicon, download [Herdr.dmg](https://re
 Run in PowerShell on x64 Windows with curl and tar installed (Windows 10 1803 or newer):
 
 ```powershell
-irm https://releases.herdr.dev/app/install.ps1 | iex
+irm https://github.com/skyland-zero/herdr-app/releases/latest/download/install.ps1 | iex
 ```
 
 Herdr appears in the Start menu. The installer adds `%LOCALAPPDATA%\Programs\herdr-app` to your user PATH. Open a new terminal to pick it up.
+
+This fork builds its own releases, and these installers come from the newest one; the app then updates from that same release page. The core is upstream's program, so its installer (and engine) is [upstream's](https://releases.herdr.dev).
 
 Both installers download and run code. Read the [shell installer](distribution/install.sh) or [PowerShell installer](distribution/install.ps1) first if you prefer.
 They also install [herdr-core](https://github.com/herdrdev/herdr-core) if it is missing.

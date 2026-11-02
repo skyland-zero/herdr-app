@@ -6,6 +6,10 @@
 //!   terminals kept);
 //! - a newer generation than this app speaks: update the app.
 //! Then the main window opens.
+//!
+//! These lines name this fork's own release page: a build installed from it
+//! updates from it (`update.rs`), so install and update point at one place.
+//! The core's line stays upstream's, since the core is upstream's program.
 
 use crate::hc::{Core, Mismatch};
 use crate::mods::Request;
@@ -17,9 +21,9 @@ use std::sync::Arc;
 
 const ICON: &[u8] = include_bytes!("../assets/icons/herdr-ui-icon-clean.png");
 #[cfg(not(windows))]
-const APP_INSTALL: &str = "curl -fsSL https://releases.herdr.dev/app/install.sh | sh";
+const APP_INSTALL: &str = "curl -fsSL https://github.com/skyland-zero/herdr-app/releases/latest/download/install.sh | sh";
 #[cfg(windows)]
-const APP_INSTALL: &str = "powershell -c \"irm https://releases.herdr.dev/app/install.ps1 | iex\"";
+const APP_INSTALL: &str = "powershell -c \"irm https://github.com/skyland-zero/herdr-app/releases/latest/download/install.ps1 | iex\"";
 #[cfg(not(windows))]
 const CORE_INSTALL: &str = "curl -fsSL https://releases.herdr.dev/core/install.sh | sh";
 #[cfg(windows)]

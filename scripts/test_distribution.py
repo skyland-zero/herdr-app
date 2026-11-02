@@ -51,7 +51,7 @@ class DistributionTests(unittest.TestCase):
             with self.subTest(os_name=os_name):
                 result = self.run_script("distribution/install.sh", os_name, "x86_64")
                 self.assertEqual(result.returncode, 1)
-                self.assertIn("/app/install.ps1 | iex", result.stderr)
+                self.assertIn("/install.ps1 | iex", result.stderr)
                 self.assertNotIn("unexpected download", result.stderr)
 
     def test_unknown_os_installer_names_it(self):
@@ -78,7 +78,7 @@ exit 97''')
                 self.assertIn("download is damaged", result.stderr)
                 self.assertNotIn("Intel Macs", result.stderr)
 
-    def download_url(self, url, releases="https://releases.example", installed=False):
+    def download_url(self, url, releases="https://releases.example", installed=False, full=False):
         """The URL install.sh downloads the app from, for a manifest giving `url`."""
         home = Path(self.work.name) / "home"
         data = home / ".local/share"
@@ -101,7 +101,20 @@ exit 22''')
         result = subprocess.run([str(ROOT / "distribution/install.sh")], cwd=ROOT, env=env,
                                 capture_output=True, text=True, check=False)
         self.assertIn("download failed", result.stderr)
-        return log.read_text().splitlines()[-1]
+        urls = log.read_text().splitlines()
+        return urls if full else urls[-1]
+
+    def test_installer_finds_the_manifest_on_a_releases_page(self):
+        # A GitHub releases page serves the manifest (and the installers) under
+        # latest/download/; a release bucket of our own keeps them under app/.
+        page = "https://github.com/skyland-zero/herdr-app/releases"
+        tarball = f"{page}/download/v1.0.0/herdr-app-linux-x86_64.tar.gz"
+        manifest, download = self.download_url(tarball, releases=page, full=True)
+        self.assertEqual(manifest, f"{page}/latest/download/latest.json")
+        self.assertEqual(download, f"{tarball}?src=install")
+        bucket = "https://releases.example"
+        manifest, _ = self.download_url(f"{bucket}/app/1.0.0/a.tar.gz", releases=bucket, full=True)
+        self.assertEqual(manifest, f"{bucket}/app/latest.json")
 
     def test_installer_marks_plain_release_downloads_for_the_counter(self):
         r = "https://releases.example"

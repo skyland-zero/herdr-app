@@ -1,7 +1,10 @@
 #!/bin/sh
 # Installs the Herdr app, and herdr-core if there's none yet:
 #
-#   curl -fsSL https://releases.herdr.dev/app/install.sh | sh
+#   curl -fsSL https://github.com/skyland-zero/herdr-app/releases/latest/download/install.sh | sh
+#
+# HERDR_RELEASES_URL points at another server's app release (tests, a mirror).
+# The core's feed is separate (HERDR_CORE_RELEASES_URL): it's upstream's program.
 #
 # Linux: the app into ~/.local/share/herdr-app, `herdr-app` in ~/.local/bin,
 # a launcher entry and icon. macOS: Herdr.app into ~/Applications, keeping
@@ -11,7 +14,15 @@
 # keeps it current after that. Running it again updates the app.
 set -eu
 
-releases=${HERDR_RELEASES_URL:-https://releases.herdr.dev}
+releases=${HERDR_RELEASES_URL:-https://github.com/skyland-zero/herdr-app/releases}
+core_releases=${HERDR_CORE_RELEASES_URL:-https://releases.herdr.dev}
+# A GitHub releases page serves the manifest under latest/download/ and the
+# scripts as release assets; upstream's bucket keeps them under app/. Either
+# way the manifest's own urls are absolute, so only where it's found differs.
+case $releases in
+  */releases) manifest=$releases/latest/download/latest.json ps1=$releases/latest/download/install.ps1 ;;
+  *) manifest=$releases/app/latest.json ps1=$releases/app/install.ps1 ;;
+esac
 bin="$HOME/.local/bin"
 
 say() { printf '%s\n' "$*"; }
@@ -23,7 +34,7 @@ need tar
 case "$(uname -s)" in
   Linux) os=linux ;;
   Darwin) os=macos ;;
-  MINGW* | MSYS* | CYGWIN*) fail "this installer is for Linux and macOS; on Windows, run this in PowerShell: irm $releases/app/install.ps1 | iex" ;;
+  MINGW* | MSYS* | CYGWIN*) fail "this installer is for Linux and macOS; on Windows, run this in PowerShell: irm $ps1 | iex" ;;
   *) fail "no build for $(uname -s)" ;;
 esac
 case "$(uname -m)" in
@@ -50,7 +61,7 @@ sha256() {
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-curl -fsSL "$releases/app/latest.json" -o "$tmp/latest.json" || fail "cannot reach $releases"
+curl -fsSL "$manifest" -o "$tmp/latest.json" || fail "cannot reach $manifest"
 # Read without jq: the manifest is flat enough for sed once spaces are gone.
 entry=$(tr -d '\n ' < "$tmp/latest.json" | sed -n "s/.*\"$target\":{\([^}]*\)}.*/\1/p")
 url=$(printf '%s' "$entry" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
@@ -135,7 +146,7 @@ fi
 # The core: installed only if there's none yet. One that's already there
 # (yours, or from a package manager) is left alone; the app updates it.
 if [ ! -e "$bin/herdr-core" ] && ! command -v herdr-core >/dev/null 2>&1; then
-  curl -fsSL "$releases/core/install.sh" | HC_INSTALL_DIR="$bin" HERDR_RELEASES_URL="$releases" sh || say "herdr-core didn't install; Herdr will offer it when it opens."
+  curl -fsSL "$core_releases/core/install.sh" | HC_INSTALL_DIR="$bin" HERDR_RELEASES_URL="$core_releases" sh || say "herdr-core didn't install; Herdr will offer it when it opens."
 fi
 
 say "Herdr is installed. Open it from your apps, or run: herdr-app"
