@@ -4356,6 +4356,7 @@ fn agent_name(app: &str) -> String {
         "cursor" | "cursor-agent" => "Cursor".into(),
         "amp" => "Amp".into(),
         "grok" => "Grok".into(),
+        "dsh-tui" => "DeepSeek Harness".into(),
         other => other.to_owned(),
     }
 }
