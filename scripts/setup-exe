@@ -1,31 +1,46 @@
 #!/bin/bash
 # Builds the app's Windows installer: dist/herdr-app-windows-x86_64-setup.exe.
 #
-#   scripts/setup-exe            -> setup.exe for the app scripts/package packed
-#   scripts/setup-exe <dir>      -> the same, packing another folder
+#   scripts/setup-exe                 -> pack what scripts/package left in dist
+#   scripts/setup-exe <dir|tar.gz>    -> pack that folder, or that release archive
 #
 # Needs Inno Setup 6 (ISCC.exe). It is a Windows tool, so this runs on Windows;
 # in CI it is the windows-x86_64 job, right after scripts/package.
 #
-# The installer is a thin wrapper over the folder scripts/package already
-# packs: same files, same layout as install.ps1 makes, so a person can install
-# with either and update with the other.
+# The installer is a thin wrapper over the folder scripts/package packs: same
+# files, same layout as install.ps1 makes, so a person can install with either
+# and update with the other.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 [[ -n $version ]] || { echo "setup-exe: Cargo.toml has no version" >&2; exit 1; }
 
-app=${1:-dist/herdr-app}
-[[ -f $app/herdr-app.exe ]] || { echo "setup-exe: no $app/herdr-app.exe (run scripts/package first)" >&2; exit 1; }
+# scripts/package leaves the archive; a checkout may have the folder. Take
+# either, unpacking an archive into a scratch folder of our own.
+app=${1:-}
+if [[ -z $app ]]; then
+  if [[ -d dist/herdr-app ]]; then app=dist/herdr-app
+  else app=$(ls dist/herdr-app-windows-x86_64.tar.gz 2>/dev/null || true); fi
+fi
+[[ -n $app ]] || { echo "setup-exe: no dist/herdr-app or release archive (run scripts/package first)" >&2; exit 1; }
+
+work=
+if [[ -f $app ]]; then
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT
+  tar -xzf "$app" -C "$work"
+  app="$work/herdr-app"
+fi
+[[ -f $app/herdr-app.exe ]] || { echo "setup-exe: no $app/herdr-app.exe" >&2; exit 1; }
 for notice in LICENSE THIRD-PARTY-NOTICES; do
   [[ -s $app/$notice ]] || { echo "setup-exe: $app/$notice is missing or empty" >&2; exit 1; }
 done
 icon=assets/icons/herdr-app.ico
 [[ -f $icon ]] || { echo "setup-exe: $icon is missing" >&2; exit 1; }
 
-# ISCC from PATH, or from the usual places: the machine-wide install first,
-# then the per-user one winget makes.
+# ISCC from PATH, or from where Inno Setup puts it: the machine-wide install
+# (CI's image has one) first, then the per-user one winget makes.
 iscc=${ISCC:-}
 if [[ -z $iscc ]]; then
   if command -v ISCC.exe >/dev/null 2>&1; then

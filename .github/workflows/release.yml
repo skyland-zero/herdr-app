@@ -137,13 +137,13 @@ jobs:
         run: scripts/package
       # The double-click installer, from the same folder: it writes what
       # install.ps1 writes, so either one installs and the other updates.
+      # Inno Setup is already on the Windows runner image (and choco exits
+      # non-zero when a package is present, which would fail the job under -e).
       - name: Windows setup.exe
         if: runner.os == 'Windows'
         shell: bash
         timeout-minutes: 10
-        run: |
-          choco install innosetup --no-progress -y
-          scripts/setup-exe
+        run: scripts/setup-exe
       - name: Verify release notices
         run: |
           archive="dist/herdr-app-${{ matrix.target }}.tar.gz"
