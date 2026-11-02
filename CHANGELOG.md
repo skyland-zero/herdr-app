@@ -1,5 +1,17 @@
 # Herdr changelog
 
+## [0.1.15] - 2026-11-02
+
+### New
+- dsh-tui agents show their own icon and name, and start from the new agent menu. (#335, thanks @tsonglew)
+
+### Fixed
+- The command palette scrolls smoothly, from a wheel and a touchpad. (#348, thanks @patrick-xin)
+- Add a machine lists the hosts in the files `~/.ssh/config` includes. (#328, thanks @ashrodan)
+- Braille graphs like btop's are spaced evenly across their rows. (#351, thanks @leoscricca)
+- A copy key reaches the program when nothing is selected. (#319, thanks @sllrs)
+- An empty bitmap glyph in a font no longer crashes the window. (#316, thanks @ruilopesm)
+
 ## [0.1.14] - 2026-11-02
 
 ### New
