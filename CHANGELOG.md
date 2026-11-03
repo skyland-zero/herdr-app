@@ -1,5 +1,11 @@
 # Herdr changelog
 
+## [0.1.17] - 2026-11-03
+<!-- spotlight -->
+
+### Fixed
+- A Nerd Font icon in a title, a space name or an agent row draws its icon instead of an empty box, whatever the window's font is.
+
 ## [0.1.16] - 2026-11-03
 <!-- spotlight -->
 
