@@ -6,7 +6,7 @@
 //! theme is consistent and overrides only need what they change.
 
 use crate::vt::Rgb;
-use gpui::{Hsla, Pixels, Rgba, px};
+use gpui::{Font, FontFallbacks, Hsla, Pixels, Rgba, px};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -839,6 +839,16 @@ pub const SYMBOLS_FONT_FILE: &[u8] = include_bytes!("../assets/fonts/SymbolsNerd
 /// Nerd Font icons for terminals, under any font (MIT, nerd-fonts).
 pub const SYMBOLS_FONT: &str = "Symbols Nerd Font";
 
+/// The window's own text: the UI font, with the bundled icon font behind it, so an
+/// icon in a title or a space name draws its glyph instead of a box.
+pub fn ui_font() -> Font {
+    Font {
+        family: get().ui_font_family.clone().into(),
+        fallbacks: Some(FontFallbacks::from_fonts(vec![SYMBOLS_FONT.to_owned()])),
+        ..Default::default()
+    }
+}
+
 /// Terminals' font unless a layout or settings.json picks another.
 pub const DEFAULT_FONT: &str = "JetBrains Mono";
 
@@ -858,6 +868,18 @@ mod tests {
     }
 
     use super::*;
+
+    // The window's text carries the bundled icon font: a Nerd Font icon in a title
+    // draws its glyph instead of a box, even under a UI font that lacks it.
+    #[test]
+    fn window_text_falls_back_to_the_icon_font() {
+        let font = ui_font();
+        assert_eq!(font.family.as_ref(), get().ui_font_family.as_str());
+        assert_eq!(
+            font.fallbacks.expect("a fallback list").fallback_list(),
+            [SYMBOLS_FONT.to_owned()]
+        );
+    }
 
     #[test]
     fn layout_look_wins_and_settings_fill_what_it_leaves_unset() {

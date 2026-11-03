@@ -205,7 +205,7 @@ impl Render for Setup {
             .justify_center()
             .bg(c("background"))
             .text_color(c("foreground"))
-            .font_family(settings::get().ui_font_family.clone())
+            .font(settings::ui_font())
             .child(
                 div()
                     .w(px(520.0))

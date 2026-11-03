@@ -32,7 +32,6 @@ struct FontInfo {
     font_face: IDWriteFontFace3,
     features: IDWriteTypography,
     fallbacks: Option<IDWriteFontFallback>,
-    font_collection: IDWriteFontCollection1,
 }
 
 pub(crate) struct DirectWriteTextSystem {
@@ -75,6 +74,9 @@ struct DirectWriteState {
     gpu_state: Option<GPUState>,
     system_font_collection: IDWriteFontCollection1,
     custom_font_collection: IDWriteFontCollection1,
+    /// Both of the above in one: a layout falls back to families its own collection
+    /// knows, and text in a system font has to reach a font the app bundles (HERDR:).
+    merged_font_collection: IDWriteFontCollection1,
     fonts: Vec<FontInfo>,
     font_to_font_id: HashMap<Font, FontId>,
     font_info_cache: HashMap<usize, FontId>,
@@ -206,6 +208,11 @@ impl DirectWriteTextSystem {
                 .factory
                 .CreateFontCollectionFromFontSet(&custom_font_set)?
         };
+        let merged_font_collection = DirectWriteState::merge_font_collections(
+            &components,
+            &system_font_collection,
+            &custom_font_collection,
+        )?;
 
         Ok(Self {
             components,
@@ -213,6 +220,7 @@ impl DirectWriteTextSystem {
                 gpu_state,
                 system_font_collection,
                 custom_font_collection,
+                merged_font_collection,
                 fonts: Vec::new(),
                 font_to_font_id: HashMap::default(),
                 font_info_cache: HashMap::default(),
@@ -324,7 +332,7 @@ impl DirectWriteState {
                         font,
                         font_collection,
                         &components.factory,
-                        &this.system_font_collection,
+                        &this.merged_font_collection,
                         &components.system_ui_font_name,
                     )
                 })?;
@@ -349,6 +357,13 @@ impl DirectWriteState {
             .is_some();
             if font_collection_updated && let Some(collection) = collection {
                 self.system_font_collection = collection;
+                if let Ok(merged) = Self::merge_font_collections(
+                    components,
+                    &self.system_font_collection,
+                    &self.custom_font_collection,
+                ) {
+                    self.merged_font_collection = merged;
+                }
             }
             font_id = select_font(self, font);
         };
@@ -391,14 +406,42 @@ impl DirectWriteState {
         let set = unsafe { components.builder.CreateFontSet()? };
         let collection = unsafe { components.factory.CreateFontCollectionFromFontSet(&set)? };
         self.custom_font_collection = collection;
+        self.merged_font_collection = Self::merge_font_collections(
+            components,
+            &self.system_font_collection,
+            &self.custom_font_collection,
+        )?;
 
         Ok(())
+    }
+
+    /// The system's fonts and the app's own in one collection. A layout falls back
+    /// to the families its own collection knows, so the bundled icon font has to be
+    /// in there for a title in a system font to draw an icon rather than a box.
+    fn merge_font_collections(
+        components: &DirectWriteComponents,
+        system: &IDWriteFontCollection1,
+        custom: &IDWriteFontCollection1,
+    ) -> Result<IDWriteFontCollection1> {
+        unsafe {
+            let builder = components.factory.CreateFontSetBuilder()?;
+            let custom_set = custom.GetFontSet()?;
+            if custom_set.GetFontCount() > 0 {
+                builder.AddFontSet(&custom_set)?;
+            }
+            builder.AddFontSet(&system.GetFontSet()?)?;
+            let set = builder.CreateFontSet()?;
+            components
+                .factory
+                .CreateFontCollectionFromFontSet(&set)
+                .context("failed to merge the font collections")
+        }
     }
 
     fn generate_font_fallbacks(
         fallbacks: &FontFallbacks,
         factory: &IDWriteFactory5,
-        system_font_collection: &IDWriteFontCollection1,
+        font_collection: &IDWriteFontCollection1,
     ) -> Result<Option<IDWriteFontFallback>> {
         let fallback_list = fallbacks.fallback_list();
         if fallback_list.is_empty() {
@@ -406,7 +449,10 @@ impl DirectWriteState {
         }
         unsafe {
             let builder = factory.CreateFontFallbackBuilder()?;
-            let font_set = &system_font_collection.GetFontSet()?;
+            let font_set = &font_collection.GetFontSet()?;
+            // DWrite resolves the mapping's family names in this collection; without
+            // one it looks in the system's, where a font the app added is not (HERDR:).
+            let target_collection = font_collection.cast::<IDWriteFontCollection>()?;
             let mut unicode_ranges = Vec::new();
             for family_name in fallback_list {
                 let family_name = HSTRING::from(family_name);
@@ -438,10 +484,11 @@ impl DirectWriteState {
                 else {
                     continue;
                 };
+                // Without a collection DWrite resolves these names in the system's,
                 builder.AddMapping(
                     &unicode_ranges,
                     &[family_name.as_ptr()],
-                    None,
+                    &target_collection,
                     None,
                     None,
                     1.0,
@@ -472,7 +519,7 @@ impl DirectWriteState {
         }: &Font,
         collection: &IDWriteFontCollection1,
         factory: &IDWriteFactory5,
-        system_font_collection: &IDWriteFontCollection1,
+        fallback_font_collection: &IDWriteFontCollection1,
         system_ui_font_name: &SharedString,
     ) -> Option<FontInfo> {
         const SYSTEM_UI_FONT_NAME: &str = ".SystemUIFont";
@@ -501,7 +548,7 @@ impl DirectWriteState {
                 let direct_write_features =
                     unsafe { Self::generate_font_features(factory, features).log_err()? };
                 let fallbacks = fallbacks.as_ref().and_then(|fallbacks| {
-                    Self::generate_font_fallbacks(fallbacks, factory, system_font_collection)
+                    Self::generate_font_fallbacks(fallbacks, factory, fallback_font_collection)
                         .log_err()
                         .flatten()
                 });
@@ -510,7 +557,6 @@ impl DirectWriteState {
                     font_face,
                     features: direct_write_features,
                     fallbacks,
-                    font_collection: collection.clone(),
                 };
                 Some(font_info)
             });
@@ -544,7 +590,7 @@ impl DirectWriteState {
             let text_layout = {
                 let first_run = &font_runs[0];
                 let font_info = &self.fonts[first_run.font_id.0];
-                let collection = &font_info.font_collection;
+                let collection = &self.merged_font_collection;
                 let format: IDWriteTextFormat1 = components
                     .factory
                     .CreateTextFormat(
@@ -596,7 +642,7 @@ impl DirectWriteState {
                 utf8_offset += run.len;
                 let current_text_utf16_length = current_text.encode_utf16().count() as u32;
 
-                let collection = &font_info.font_collection;
+                let collection = &self.merged_font_collection;
                 let text_range = DWRITE_TEXT_RANGE {
                     startPosition: utf16_offset,
                     length: current_text_utf16_length,
@@ -1989,6 +2035,44 @@ mod tests {
         for ch in ['\u{f115}', '\u{f090}', '\u{f08b}', '\u{10ffff}'] {
             assert_eq!(text_system.glyph_for_char(font_id, ch), None);
         }
+        Ok(())
+    }
+
+    // The window's own text names the bundled icon font as its fallback: a Nerd
+    // Font icon in a title draws its glyph instead of a box (HERDR:).
+    #[test]
+    fn a_fallback_finds_a_font_the_app_added() -> Result<()> {
+        let text_system = DirectWriteTextSystem::new(None)?;
+        text_system.add_fonts(vec![std::borrow::Cow::Borrowed(include_bytes!(
+            "../../../assets/fonts/SymbolsNerdFont-Regular.ttf"
+        ))])?;
+        let font = Font {
+            family: "Consolas".into(),
+            fallbacks: Some(gpui::FontFallbacks::from_fonts(vec![
+                "Symbols Nerd Font".into(),
+            ])),
+            ..Default::default()
+        };
+        let font_id = text_system.font_id(&font)?;
+        let text = "a\u{f04c5}b";
+        let layout = text_system.layout_line(
+            text,
+            px(14.),
+            &[gpui::FontRun {
+                len: text.len(),
+                font_id,
+            }],
+        );
+        let icon_run = layout
+            .runs
+            .iter()
+            .find(|run| run.font_id != font_id)
+            .expect("the icon's own font run");
+        assert!(icon_run.glyphs.iter().all(|glyph| glyph.id.0 != 0));
+        assert!(layout
+            .runs
+            .iter()
+            .all(|run| run.glyphs.iter().all(|glyph| glyph.id.0 != 0)));
         Ok(())
     }
 

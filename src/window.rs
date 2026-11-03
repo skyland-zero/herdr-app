@@ -4742,7 +4742,7 @@ impl Render for AppWindow {
             .relative()
             .bg(c("background"))
             .text_color(c("foreground"))
-            .font_family(settings::get().ui_font_family.clone())
+            .font(settings::ui_font())
             .on_action(cx.listener(|this, a: &ShellAction, w, cx| {
                 // Nothing selected: the copy chord goes to the program (#216).
                 if a.id() == "terminal.copy" {
