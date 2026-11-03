@@ -1,5 +1,30 @@
 # Herdr changelog
 
+## [0.1.16] - 2026-11-03
+<!-- spotlight -->
+
+### New
+- **Ligatures in the terminal.** Set `font_ligatures` to true in settings.json for programming ligatures in fonts like JetBrains Mono and Fira Code. The cursor and selections break them, so every cell stays clear.
+- **A menu for a file row.** Right-click a row in the Files panel: Copy path, and on this computer Open in File Explorer (Finder on macOS, File Manager on Linux), or Show/Reveal for a file.
+- **The Files panel watches only what it shows.** A build in `target/`, an install in `node_modules/`, a folder you have collapsed, and a window behind another one no longer make it read anything; it follows the folders you open and the checkout's git directory.
+
+### Fixed
+- A pane's program starts at the size it is shown at, so a full-screen program's first frame is not laid out for a smaller pane.
+- Ctrl-[, Ctrl-I, Ctrl-M, Ctrl-minus and Ctrl-underscore reach a program the way it expects, whether or not it asked for modifyOtherKeys.
+- The Files panel lists a Windows machine's folders: where there is no `sh`, it asks PowerShell instead of showing "cannot start sh".
+- Git A/M/D marks appear in a folder that is a subdirectory of a checkout.
+- Next and previous space follow the order the sidebar shows, including its machine groups.
+- A space you drag stays where you put it, even while another machine is still connecting.
+- A pane's focus ring hides while a dialog or a floating window has the keyboard.
+- Dragging a selection out of a terminal ends it before what you release over acts on it.
+- On Windows, a character the font lacks falls back to another font instead of a blank box.
+- On a dark Linux desktop the window no longer opens with a light frame first.
+- On Wayland, a second seat no longer takes input from the first.
+- The keys dialog closes with the key that opened it, and on Linux Ctrl+? opens it.
+- A window with no spaces takes the keyboard on startup.
+- Mods see the window lose and regain focus. (#350)
+- On Windows, installing over an older build no longer leaves a stale Herdr row in Settings → Apps.
+
 ## [0.1.15] - 2026-11-02
 
 ### New
