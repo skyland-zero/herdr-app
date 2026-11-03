@@ -103,6 +103,52 @@ Type: files; Name: "{localappdata}\Programs\herdr-app.new.json"
 const
   EnvironmentKey = 'Environment';
   PathValue = 'Path';
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
+  // This installer's own entry, so it is never mistaken for a stale one.
+  OwnAppId = '{8E4B1A6C-3F2D-4C1B-9E77-5A0C2B7D4F31}';
+
+// Trailing separators are not part of a folder: C:\x\ is C:\x.
+function TrimSeparators(const Value: String): String;
+begin
+  Result := Value;
+  while (Result <> '') and (Result[Length(Result)] = '\') do
+    Delete(Result, Length(Result), 1);
+end;
+
+function HerdrFolder(): String;
+begin
+  Result := TrimSeparators(ExpandConstant('{app}'));
+end;
+
+// An older build installed into this same folder is about to have its
+// uninstaller deleted with the folder, so its row in Settings > Apps would
+// point at nothing. Upstream's installer filed one under a different AppId
+// (this fork keeps its own), so a person who updated that way must not be left
+// with two Herdr rows.
+procedure ForgetOldUninstallEntries();
+var
+  Names: TArrayOfString;
+  I: Integer;
+  DisplayName, Location: String;
+begin
+  if not RegGetSubkeyNames(HKEY_CURRENT_USER, UninstallKey, Names) then
+    exit;
+  for I := 0 to GetArrayLength(Names) - 1 do begin
+    if Pos(OwnAppId, Names[I]) = 1 then
+      continue;
+    if not RegQueryStringValue(HKEY_CURRENT_USER, UninstallKey + '\' + Names[I], 'DisplayName', DisplayName) then
+      continue;
+    if Pos('Herdr', DisplayName) <> 1 then
+      continue;
+    // Only the row filed under this folder: a Herdr installed somewhere else
+    // keeps its own.
+    if not RegQueryStringValue(HKEY_CURRENT_USER, UninstallKey + '\' + Names[I], 'InstallLocation', Location) then
+      continue;
+    if CompareText(TrimSeparators(Location), HerdrFolder()) <> 0 then
+      continue;
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, UninstallKey + '\' + Names[I]);
+  end;
+end;
 
 // The user's PATH as it is stored. Inno 6 reads a REG_EXPAND_SZ value without
 // expanding it (so other programs' %VARIABLES% stay text) and writes it back
@@ -117,14 +163,6 @@ end;
 function WriteUserPath(const Value: String): Boolean;
 begin
   Result := RegWriteStringValue(HKEY_CURRENT_USER, EnvironmentKey, PathValue, Value);
-end;
-
-// Trailing separators are not part of a folder: C:\x\ is C:\x.
-function TrimSeparators(const Value: String): String;
-begin
-  Result := Value;
-  while (Result <> '') and (Result[Length(Result)] = '\') do
-    Delete(Result, Length(Result), 1);
 end;
 
 function PathListed(const Value, Folder: String): Boolean;
@@ -158,11 +196,6 @@ begin
       Result := Result + Entry;
     end;
   end;
-end;
-
-function HerdrFolder(): String;
-begin
-  Result := TrimSeparators(ExpandConstant('{app}'));
 end;
 
 // New terminals read the environment; already-running ones do not. Setting any
@@ -203,6 +236,8 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
+  if CurStep = ssInstall then
+    ForgetOldUninstallEntries();
   if (CurStep = ssPostInstall) and WizardIsTaskSelected('addtopath') then
     AddToPath();
 end;
