@@ -864,22 +864,84 @@ fn read_remote(machine: &str, path: &str) -> Result<Option<String>, String> {
     Ok(Some(String::from_utf8_lossy(&out).into_owned()))
 }
 
-/// A folder's rows on another machine, through `sh` (kind and name, NUL-separated).
+/// A folder's rows on another machine: `sh` (kind and name, NUL-separated), or
+/// PowerShell where there is no `sh` (Windows).
 fn list_remote(machine: &str, path: &str) -> Result<Vec<crate::mod_files::Entry>, String> {
     // 501 rows: enough for a mod to tell "more than 500" and say so.
     const SCRIPT: &str = r#"n=0; for p in "$1"/* "$1"/.[!.]* "$1"/..?*; do [ -e "$p" ] || [ -L "$p" ] || continue; name=${p##*/}; if [ -d "$p" ]; then kind=d; else kind=f; fi; printf "%s\0%s\0" "$kind" "$name"; n=$((n+1)); [ "$n" -gt 500 ] && break; done; test -d "$1""#;
-    let (code, out, err) = run_remote(machine, "sh", &["-c".into(), SCRIPT.into(), "files".into(), path.into()], None)?;
+    let (code, out, err) = match run_remote(machine, "sh", &["-c".into(), SCRIPT.into(), "files".into(), path.into()], None) {
+        Err(e) if e.contains("cannot start") => return list_remote_windows(machine, path),
+        r => r?,
+    };
     if code != 0 {
         let message = String::from_utf8_lossy(&err).trim().to_owned();
         return Err(if message.is_empty() { "Cannot list this folder".into() } else { message });
     }
-    let out = String::from_utf8_lossy(&out);
-    Ok(out
+    Ok(parse_listed_rows(&out))
+}
+
+/// The rows `list_remote`'s `sh` printed: kind and name, NUL-separated.
+fn parse_listed_rows(out: &[u8]) -> Vec<crate::mod_files::Entry> {
+    let out = String::from_utf8_lossy(out);
+    let mut rows: Vec<crate::mod_files::Entry> = out
         .split('\0')
         .collect::<Vec<_>>()
         .chunks_exact(2)
         .map(|pair| crate::mod_files::Entry { name: pair[1].to_owned(), dir: pair[0] == "d" })
-        .collect())
+        .collect();
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    rows
+}
+
+/// A folder's rows on a machine without `sh` (Windows): PowerShell enumerates them
+/// as JSON. `-LiteralPath` takes the folder as data, not as a pattern; PowerShell
+/// reads curly single quotes as quotes too, so those are doubled like `'`.
+fn list_remote_windows(machine: &str, path: &str) -> Result<Vec<crate::mod_files::Entry>, String> {
+    let script = windows_list_script(path);
+    let (code, out, err) = match run_remote(machine, "powershell", &["-NoProfile".into(), "-Command".into(), script], None) {
+        Err(e) if e.contains("cannot start") => {
+            return Err(format!("Cannot list this folder on {machine}: it has neither sh nor PowerShell"))
+        }
+        r => r?,
+    };
+    if code != 0 {
+        let message = String::from_utf8_lossy(&err).trim().to_owned();
+        return Err(if message.is_empty() { "Cannot list this folder".into() } else { message });
+    }
+    parse_windows_rows(&String::from_utf8_lossy(&out))
+}
+
+/// The PowerShell that lists a folder as JSON (a machine without `sh`, i.e. Windows).
+fn windows_list_script(path: &str) -> String {
+    // PowerShell reads curly single quotes as quotes too: each is doubled, like `'`.
+    let quote = ['\'', '‘', '’', '‚', '‛']
+        .iter()
+        .fold(path.to_owned(), |text, c| text.replace(*c, &format!("{c}{c}")));
+    format!(
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); & {{ param($p) $rows = @(Get-ChildItem -LiteralPath $p -Force -ErrorAction Stop | Select-Object -First 501 | ForEach-Object {{ @{{ name = $_.Name; dir = [bool]$_.PSIsContainer }} }}); ConvertTo-Json -Compress -InputObject $rows }} '{quote}'"
+    )
+}
+
+/// The rows PowerShell printed: `[{ "name", "dir" }]` (one row comes back bare).
+fn parse_windows_rows(out: &str) -> Result<Vec<crate::mod_files::Entry>, String> {
+    let value: serde_json::Value = serde_json::from_str(out.trim()).map_err(|e| format!("cannot read the folder list: {e}"))?;
+    let rows = match value {
+        serde_json::Value::Array(rows) => rows,
+        serde_json::Value::Object(row) => vec![serde_json::Value::Object(row)],
+        serde_json::Value::Null => Vec::new(),
+        _ => return Err("cannot read the folder list".into()),
+    };
+    let mut rows: Vec<crate::mod_files::Entry> = rows
+        .into_iter()
+        .filter_map(|row| {
+            Some(crate::mod_files::Entry {
+                name: row.get("name")?.as_str()?.to_owned(),
+                dir: row.get("dir").and_then(serde_json::Value::as_bool).unwrap_or(false),
+            })
+        })
+        .collect();
+    rows.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(rows)
 }
 
 fn exec_future(command: String, args: Vec<String>, cwd: Option<String>, on: Option<String>) -> impl std::future::Future<Output = Result<HostValue, HostError>> + Send {
@@ -1203,6 +1265,65 @@ pub fn prepare_load(inst: &Instance) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_rows_from_sh_keep_kind_and_name() {
+        let rows = parse_listed_rows("d\0src\0f\0README.md\0f\0中文 名字.txt\0".as_bytes());
+        assert_eq!(rows, vec![
+            crate::mod_files::Entry { name: "README.md".into(), dir: false },
+            crate::mod_files::Entry { name: "src".into(), dir: true },
+            crate::mod_files::Entry { name: "中文 名字.txt".into(), dir: false },
+        ]);
+        assert!(parse_listed_rows(b"").is_empty());
+    }
+
+    #[test]
+    fn remote_rows_from_powershell_read_lists_and_single_objects() {
+        // Windows PowerShell writes one bare object when there is one row.
+        assert_eq!(
+            parse_windows_rows(r#"{"name":"only.txt","dir":false}"#).unwrap(),
+            vec![crate::mod_files::Entry { name: "only.txt".into(), dir: false }]
+        );
+        let rows = parse_windows_rows(r#"[{"name":"src","dir":true},{"name":"O'Brien (x).md","dir":false}]"#).unwrap();
+        assert_eq!(rows, vec![
+            crate::mod_files::Entry { name: "O'Brien (x).md".into(), dir: false },
+            crate::mod_files::Entry { name: "src".into(), dir: true },
+        ]);
+        assert!(parse_windows_rows("[]").unwrap().is_empty());
+        assert!(parse_windows_rows("not json").is_err());
+    }
+
+    // The listing a Windows machine without `sh` gets, run for real on Windows: a
+    // Unicode folder, an apostrophe and a curly quote in a name.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_windows_folder_lists_as_json_through_powershell() {
+        let root = std::env::temp_dir().join(format!("herdr-list-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("中文 目录")).unwrap();
+        let curly = "O'Brien \u{2018}quoted\u{2019}.txt";
+        std::fs::write(root.join(curly), "x").unwrap();
+        std::fs::write(root.join("README.md"), "x").unwrap();
+        let out = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", &windows_list_script(&root.to_string_lossy())])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        let rows = parse_windows_rows(&String::from_utf8_lossy(&out.stdout)).unwrap();
+        assert_eq!(rows, vec![
+            crate::mod_files::Entry { name: curly.to_owned(), dir: false },
+            crate::mod_files::Entry { name: "README.md".into(), dir: false },
+            crate::mod_files::Entry { name: "中文 目录".into(), dir: true },
+        ]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn powershell_quotes_a_folder_as_data() {
+        // The path is embedded in PowerShell source: quotes in it must not end it.
+        let script = windows_list_script("D:\\a b\\O'Brien ‘quoted’");
+        assert!(script.ends_with("'D:\\a b\\O''Brien ‘‘quoted’’'"));
+    }
 
     #[test]
     fn live_reads_ignore_unread_inputs_and_keep_pending_changes() {
