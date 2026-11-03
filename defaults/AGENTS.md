@@ -178,7 +178,9 @@ the title bar, panes as cards, a space picker) and `win98`
 writing a new file. The Files panel supports Windows folder paths with spaces,
 parentheses and apostrophes, and preserves Unicode file and folder names
 (including Chinese). Directory links expand as folders; their contents load
-only when expanded.
+only when expanded. A row's right-click menu has Copy path (any machine) and,
+on this computer, Open in File Explorer (Finder on macOS, File Manager on
+Linux); on a file it is Show/Reveal, which opens the folder that holds it.
 
 **Herdr's own layouts and mods are read-only.** They are replaced whole
 on every start. Use settings.json for look (fonts, sizes, theme, colors,
@@ -986,8 +988,14 @@ All of it is in `herdr.d.ts`. In short:
   and trees above 4096 non-ignored directories reject the watch; use a timer fallback.
   macOS and Windows watch recursively, including ignored directories.
   A returned root path means refresh everything (the pending paths are bounded).
-  Files also refreshes on its 10-second timer:
-  `cx.spawn(async (cx) => { for (;;) { await watchFolder(dir); this.reload(); cx.notify(); } })`.
+  `watchDirs(id, dirs)`, `watchChanges(id)` and `unwatch(id)` are the precise half:
+  the app watches exactly the dirs a copy shows, one level deep each (first is the
+  root), so a build in `target/` or `node_modules/` — never shown — sends nothing at
+  all; `watchChanges` resolves with the shown dirs that changed, and `unwatch` gives
+  the OS watcher back. A set nobody waits on is dropped after 5 seconds.
+  Files watches only what it shows (`watchDirs`) and reads on its next paint, so a
+  hidden or blurred panel reads nothing: it polls a 5-second fallback only for a
+  remote machine or a folder the OS wouldn't watch.
 - `notify({ ..., action: { name, args } })`: the toast runs the command when clicked.
 - This copy: `props()`, `shared(key)` / `setShared(key, value)` (every mod
   sees it; setting re-renders all), `nextCommand()` (key commands for this

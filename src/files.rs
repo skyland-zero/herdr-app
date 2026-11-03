@@ -5,7 +5,7 @@
 use notify::{RecursiveMode, Watcher as _};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 /// What changed, relative to the home folder.
 pub type Changed = Vec<PathBuf>;
@@ -328,6 +328,237 @@ fn deliver_pending(root: &Path, pending: HashSet<String>) -> bool {
     true
 }
 
+// ---- the dirs a mod shows (`watchDirs` / `watchChanges`) ----------------------
+
+/// What one mod shows: a few dirs watched one level deep each. A build in a folder
+/// the mod isn't showing (`target/`, `node_modules/`) never wakes it, because those
+/// dirs are not watched at all — no recursive watch over the whole project.
+struct Shown {
+    watcher: notify::RecommendedWatcher,
+    state: Arc<std::sync::Mutex<ShownState>>,
+    waiters: Arc<std::sync::Mutex<Vec<async_channel::Sender<Vec<String>>>>>,
+    last_use: std::time::Instant,
+}
+
+#[derive(Default)]
+struct ShownState {
+    /// Dir as the mod spelled it -> the same dir resolved, for backends that
+    /// name the real path (FSEvents resolves links).
+    watched: std::collections::HashMap<PathBuf, PathBuf>,
+    /// Dirs, spelled as the mod gave them, whose contents changed.
+    pending: HashSet<PathBuf>,
+}
+
+static SHOWN: OnceLock<std::sync::Mutex<std::collections::HashMap<String, Shown>>> = OnceLock::new();
+/// A panel shows a handful of dirs; past this the OS refuses to watch anyway.
+const MAX_SHOWN_DIRS: usize = 512;
+/// A shown set with no waiter this long gives its watcher back (a closed panel).
+const SHOWN_IDLE: std::time::Duration = std::time::Duration::from_secs(5);
+/// Changes are batched this long before a waiter hears them (a save is several
+/// events), but no longer than `SHOWN_MAX_WAIT` while events keep coming.
+const SHOWN_BATCH: std::time::Duration = std::time::Duration::from_millis(150);
+const SHOWN_MAX_WAIT: std::time::Duration = std::time::Duration::from_millis(1000);
+
+fn shown_registry() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, Shown>> {
+    let registry = SHOWN.get_or_init(|| {
+        // One thread for every shown set: a set nobody waits on gives its watcher
+        // back, so closing a panel (or leaving a space) frees the OS handles.
+        let _ = std::thread::Builder::new().name("herdr-shown-idle".into()).spawn(|| loop {
+            std::thread::sleep(SHOWN_IDLE / 2);
+            let Some(all) = SHOWN.get() else { continue };
+            let mut all = all.lock().unwrap_or_else(|p| p.into_inner());
+            let now = std::time::Instant::now();
+            all.retain(|_, s| {
+                let idle = now.duration_since(s.last_use) >= SHOWN_IDLE;
+                let waiting = s.waiters.lock().unwrap_or_else(|p| p.into_inner()).iter().any(|w| !w.is_closed());
+                !idle || waiting
+            });
+        });
+        std::sync::Mutex::new(std::collections::HashMap::new())
+    });
+    registry.lock().unwrap_or_else(|p| {
+        tracing::warn!("recovering poisoned shown-dir registry");
+        registry.clear_poison();
+        p.into_inner()
+    })
+}
+
+/// The dirs one mod shows now. The first is the root: a panel that can't watch the
+/// folder it shows fails the call, so it can poll instead. The rest are the folders
+/// it has open and (for a files panel) its git dir. The set is kept in step on every
+/// call, so passing the same dirs again costs nothing.
+pub fn set_watch_dirs(id: String, dirs: Vec<PathBuf>) -> Result<(), String> {
+    let given: Vec<PathBuf> = dirs.into_iter().filter(|d| !d.as_os_str().is_empty()).collect();
+    if given.len() > MAX_SHOWN_DIRS {
+        return Err(format!("watching {} dirs is more than {MAX_SHOWN_DIRS}", given.len()));
+    }
+    let Some(root) = given.first().cloned() else {
+        drop_watch(&id);
+        return Ok(());
+    };
+    let mut all = shown_registry();
+    if !all.contains_key(&id) {
+        let state: Arc<std::sync::Mutex<ShownState>> = Arc::default();
+        let waiters: Arc<std::sync::Mutex<Vec<async_channel::Sender<Vec<String>>>>> = Arc::default();
+        let (wake, sleeping) = std::sync::mpsc::sync_channel::<()>(1);
+        let watcher = notify::recommended_watcher({
+            let state = state.clone();
+            move |event: notify::Result<notify::Event>| {
+                let Ok(event) = event else { return };
+                let mut s = state.lock().unwrap_or_else(|p| p.into_inner());
+                let mut changed = false;
+                if event.need_rescan() {
+                    for dir in s.watched.keys().cloned().collect::<Vec<_>>() {
+                        changed |= s.pending.insert(dir);
+                    }
+                } else if !matches!(event.kind, notify::EventKind::Access(_)) {
+                    for path in &event.paths {
+                        if let Some(dir) = landed_in(&s.watched, path) {
+                            changed |= s.pending.insert(dir);
+                        }
+                    }
+                }
+                drop(s);
+                // A full wake channel is a batch already on its way.
+                if changed {
+                    let _ = wake.try_send(());
+                }
+            }
+        })
+        .map_err(|e| format!("cannot watch files: {e}"))?;
+        let batch = {
+            let (state, waiters) = (state.clone(), waiters.clone());
+            move || batch_shown(state, waiters, sleeping)
+        };
+        std::thread::Builder::new()
+            .name("herdr-shown-batch".into())
+            .spawn(batch)
+            .map_err(|e| format!("cannot start watching files: {e}"))?;
+        all.insert(id.clone(), Shown { watcher, state, waiters, last_use: std::time::Instant::now() });
+    }
+    let entry = all.get_mut(&id).expect("the shown set was just made");
+    entry.last_use = std::time::Instant::now();
+    apply_dirs(entry, &given, &root)
+}
+
+/// The next changes in the dirs a mod shows, as it spelled them.
+pub async fn next_watch_change(id: String) -> Result<Vec<String>, String> {
+    let rx = {
+        let mut all = shown_registry();
+        let Some(entry) = all.get_mut(&id) else { return Err("these folders are no longer watched".to_owned()) };
+        entry.last_use = std::time::Instant::now();
+        let mut ws = entry.waiters.lock().unwrap_or_else(|p| p.into_inner());
+        ws.retain(|w| !w.is_closed());
+        let pending: Vec<String> = {
+            let mut s = entry.state.lock().unwrap_or_else(|p| p.into_inner());
+            s.pending.drain().map(|p| p.to_string_lossy().into_owned()).collect()
+        };
+        if !pending.is_empty() {
+            return Ok(pending);
+        }
+        let (tx, rx) = async_channel::bounded(1);
+        ws.push(tx);
+        rx
+    };
+    rx.recv().await.map_err(|_| "these folders are no longer watched".to_owned())
+}
+
+/// Stops watching a mod's dirs: its pending waiter hears why, and the OS handles go.
+pub fn drop_watch(id: &str) {
+    let Some(entry) = shown_registry().remove(id) else { return };
+    // Waking the loop that waited: a promise nobody resolves would keep a copy's task
+    // alive for the rest of the session.
+    entry.waiters.lock().unwrap_or_else(|p| p.into_inner()).clear();
+}
+
+fn apply_dirs(entry: &mut Shown, given: &[PathBuf], root: &Path) -> Result<(), String> {
+    let mut want = std::collections::HashMap::new();
+    for dir in given {
+        // A folder that went away is dropped from the set like the row it had; the
+        // root is the panel itself, so without it there is nothing to show.
+        match dir.canonicalize() {
+            Ok(real) => {
+                want.insert(dir.clone(), real);
+            }
+            Err(e) if dir == root => return Err(format!("{}: {e}", dir.display())),
+            Err(_) => {}
+        }
+    }
+    let (gone, fresh) = {
+        let s = entry.state.lock().unwrap_or_else(|p| p.into_inner());
+        let gone: Vec<PathBuf> = s.watched.keys().filter(|d| !want.contains_key(*d)).cloned().collect();
+        let fresh: Vec<(PathBuf, PathBuf)> = want.iter().filter(|(d, _)| !s.watched.contains_key(*d)).map(|(d, real)| (d.clone(), real.clone())).collect();
+        (gone, fresh)
+    };
+    for dir in &gone {
+        let _ = entry.watcher.unwatch(dir);
+    }
+    let mut watched = Vec::new();
+    for (dir, real) in fresh {
+        match entry.watcher.watch(&dir, RecursiveMode::NonRecursive) {
+            Ok(()) => watched.push((dir, real)),
+            Err(e) if dir == *root => return Err(format!("cannot watch {}: {e}", dir.display())),
+            Err(e) => tracing::warn!("cannot watch {}: {e}", dir.display()),
+        }
+    }
+    let mut s = entry.state.lock().unwrap_or_else(|p| p.into_inner());
+    for dir in gone {
+        s.watched.remove(&dir);
+    }
+    s.watched.extend(watched);
+    Ok(())
+}
+
+/// The shown dir a changed path landed in: the path itself when a watched dir was
+/// renamed or removed, else its parent — the dir whose contents changed.
+fn landed_in(watched: &std::collections::HashMap<PathBuf, PathBuf>, path: &Path) -> Option<PathBuf> {
+    if let Some((dir, _)) = watched.get_key_value(path) {
+        return Some(dir.clone());
+    }
+    let parent = path.parent()?;
+    if let Some((dir, _)) = watched.get_key_value(parent) {
+        return Some(dir.clone());
+    }
+    // A backend that resolves links names the real path: match what it resolves to.
+    let real = parent.canonicalize().ok()?;
+    watched.iter().find(|(_, resolved)| **resolved == real).map(|(dir, _)| dir.clone())
+}
+
+/// Waits for a burst of changes to end, then hands the dirs it touched to whoever
+/// waits; dirs collected while nobody waits stay until somebody does.
+fn batch_shown(
+    state: Arc<std::sync::Mutex<ShownState>>,
+    waiters: Arc<std::sync::Mutex<Vec<async_channel::Sender<Vec<String>>>>>,
+    wake: std::sync::mpsc::Receiver<()>,
+) {
+    while wake.recv().is_ok() {
+        let started = std::time::Instant::now();
+        loop {
+            let left = SHOWN_MAX_WAIT.saturating_sub(started.elapsed()).min(SHOWN_BATCH);
+            match wake.recv_timeout(left) {
+                Ok(()) => continue,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+        }
+        let mut ws = waiters.lock().unwrap_or_else(|p| p.into_inner());
+        ws.retain(|w| !w.is_closed());
+        if ws.is_empty() {
+            continue;
+        }
+        let batch: Vec<String> = {
+            let mut s = state.lock().unwrap_or_else(|p| p.into_inner());
+            s.pending.drain().map(|p| p.to_string_lossy().into_owned()).collect()
+        };
+        if batch.is_empty() {
+            continue;
+        }
+        for waiter in ws.drain(..) {
+            let _ = waiter.try_send(batch.clone());
+        }
+    }
+}
+
 /// The mod a changed path belongs to (`mods/<name>/...`).
 pub fn mod_of(rel: &Path) -> Option<String> {
     let mut parts = rel.components();
@@ -624,5 +855,157 @@ mod tests {
         wait_for_change(&dir, &dir.join("b.md"));
         folders().remove(&dir);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // ---- the dirs a mod shows (`watchDirs` / `watchChanges`) ------------------
+
+    fn shown(id: &str, dirs: &[&Path]) {
+        set_watch_dirs(id.to_owned(), dirs.iter().map(|p| p.to_path_buf()).collect()).unwrap();
+    }
+
+    /// The next change in a shown set, or None when `within` passes first.
+    fn clock(id: &str, within: std::time::Duration) -> Vec<String> {
+        let deadline = std::time::Instant::now() + within;
+        poll_until(next_watch_change(id.to_owned()), deadline).and_then(Result::ok).unwrap_or_default()
+    }
+
+    /// Waits for a change in `dir`, touching it again when the backend was still
+    /// starting (a watched dir exists before its watch does on some systems).
+    fn shown_change(id: &str, dir: &Path, mut touch: impl FnMut()) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            let changes = clock(id, std::time::Duration::from_millis(300));
+            if changes.iter().any(|c| Path::new(c) == dir) {
+                return;
+            }
+            assert!(std::time::Instant::now() < deadline, "no change reported in {}", dir.display());
+            touch();
+        }
+    }
+
+    #[test]
+    fn a_changed_path_names_the_shown_dir_it_landed_in() {
+        let root = PathBuf::from("/project");
+        let watched = std::collections::HashMap::from([
+            (root.clone(), root.clone()),
+            (root.join("src"), root.join("src")),
+        ]);
+        assert_eq!(landed_in(&watched, Path::new("/project/src/main.rs")), Some(root.join("src")));
+        assert_eq!(landed_in(&watched, Path::new("/project/README.md")), Some(root.clone()));
+        // A dir that isn't shown, and its contents, are nobody's business.
+        assert_eq!(landed_in(&watched, Path::new("/project/target/deep/x")), None);
+        assert_eq!(landed_in(&watched, Path::new("/project/src/deep/x")), None);
+        // A watched dir renamed or removed reports itself.
+        assert_eq!(landed_in(&watched, Path::new("/project/src")), Some(root.join("src")));
+    }
+
+    /// Eats whatever was already reported, so a quiet check starts clean.
+    fn drain(id: &str) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if clock(id, std::time::Duration::from_millis(200)).is_empty() {
+                return;
+            }
+        }
+        panic!("changes never stopped arriving for {id}");
+    }
+
+    #[test]
+    fn shown_dirs_report_changes_one_level_deep_only() {
+        let root = test_repo("shown-level");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::create_dir_all(root.join("target/deep")).unwrap();
+        shown("shown-level", &[&root, &root.join("src")]);
+        let file = root.join("src/a.txt");
+        shown_change("shown-level", &root.join("src"), || std::fs::write(&file, "one").unwrap());
+        shown_change("shown-level", &root, || std::fs::write(root.join("b.txt"), "two").unwrap());
+        drain("shown-level");
+        // `target/` isn't shown, so nothing there wakes the panel that isn't showing it.
+        let deep = root.join("target/deep/loud.txt");
+        for i in 0..3 {
+            std::fs::write(&deep, i.to_string()).unwrap();
+            assert!(clock("shown-level", std::time::Duration::from_millis(250)).is_empty(), "a hidden dir woke the panel");
+        }
+        drop_watch("shown-level");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn opening_a_folder_adds_its_watch() {
+        let root = test_repo("shown-expand");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        shown("shown-expand", &[&root]);
+        // A change inside a folder that isn't open has nothing to redraw.
+        let hidden = root.join("sub/x.txt");
+        std::fs::write(&hidden, "one").unwrap();
+        drain("shown-expand");
+        assert!(clock("shown-expand", std::time::Duration::from_millis(300)).is_empty());
+        // Opening it: the same call, one dir more.
+        shown("shown-expand", &[&root, &root.join("sub")]);
+        shown_change("shown-expand", &root.join("sub"), || std::fs::write(&hidden, "two").unwrap());
+        drop_watch("shown-expand");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_git_dir_beside_the_checkout_is_watched() {
+        let root = test_repo("shown-git");
+        let git = root.with_extension("shown-git-dir");
+        let _ = std::fs::remove_dir_all(&git);
+        std::fs::create_dir_all(&git).unwrap();
+        shown("shown-git", &[&root, &git]);
+        // A worktree's git dir sits outside the folder; marks still follow it.
+        shown_change("shown-git", &git, || std::fs::write(git.join("index"), "marks").unwrap());
+        drop_watch("shown-git");
+        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_dir_all(git).unwrap();
+    }
+
+    #[test]
+    fn unwatching_ends_the_wait_and_frees_the_watcher() {
+        let root = test_repo("shown-unwatch");
+        shown("shown-unwatch", &[&root]);
+        let mut wait = Box::pin(next_watch_change("shown-unwatch".to_owned()));
+        assert!(wait.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop())).is_pending());
+        drop_watch("shown-unwatch");
+        // A promise nobody resolves would keep a copy's task for the whole session.
+        assert!(poll_until(&mut wait, std::time::Instant::now() + std::time::Duration::from_secs(5)).is_some_and(|r| r.is_err()));
+        assert!(!shown_registry().contains_key("shown-unwatch"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_shown_dir_that_vanished_stops_being_watched() {
+        let root = test_repo("shown-vanish");
+        std::fs::create_dir_all(root.join("gone")).unwrap();
+        shown("shown-vanish", &[&root, &root.join("gone")]);
+        std::fs::remove_dir_all(root.join("gone")).unwrap();
+        // The folder's row is gone; passing it again is a set change, not an error.
+        set_watch_dirs("shown-vanish".to_owned(), vec![root.clone(), root.join("gone")]).unwrap();
+        shown_change("shown-vanish", &root, || std::fs::write(root.join("after.txt"), "yes").unwrap());
+        drop_watch("shown-vanish");
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Polls a future until it is ready or `deadline` passes.
+    fn poll_until<F: std::future::Future>(f: F, deadline: std::time::Instant) -> Option<F::Output> {
+        use std::task::{Context, Poll, Wake, Waker};
+        struct Unpark(std::thread::Thread);
+        impl Wake for Unpark {
+            fn wake(self: std::sync::Arc<Self>) {
+                self.0.unpark();
+            }
+        }
+        let waker = Waker::from(std::sync::Arc::new(Unpark(std::thread::current())));
+        let mut f = std::pin::pin!(f);
+        loop {
+            if let Poll::Ready(v) = f.as_mut().poll(&mut Context::from_waker(&waker)) {
+                return Some(v);
+            }
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::park_timeout(std::time::Duration::from_millis(10));
+        }
     }
 }

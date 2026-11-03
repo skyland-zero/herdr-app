@@ -1172,6 +1172,23 @@ fn module(inst: Instance, copy: u64) -> HostModule {
             let path = a.string(0)?.to_owned();
             Ok(async move { crate::files::next_change(path).await.map(|v| to_host(&json!(v))).map_err(HostError::new) })
         })
+        // The dirs this mod shows, one level deep each: `watchDirs` says what it shows
+        // now (the first is its root), `watchChanges` resolves with the ones that
+        // changed, and `unwatch` gives the OS watcher back.
+        .function("watchDirs", |a| {
+            let id = a.string(0)?.to_owned();
+            let dirs = strings(a.get(1)).into_iter().map(std::path::PathBuf::from).collect();
+            crate::files::set_watch_dirs(id, dirs).map_err(HostError::new)?;
+            Ok(HostValue::Null)
+        })
+        .async_function("watchChanges", |a| {
+            let id = a.string(0)?.to_owned();
+            Ok(async move { crate::files::next_watch_change(id).await.map(|v| to_host(&json!(v))).map_err(HostError::new) })
+        })
+        .function("unwatch", |a| {
+            crate::files::drop_watch(a.string(0)?);
+            Ok(HostValue::Null)
+        })
         .async_function("nextCommand", move |_| {
             let rx = commands.clone();
             Ok(async move { rx.recv().await.map(HostValue::Str).map_err(|_| HostError::new("herdr-app is shutting down")) })

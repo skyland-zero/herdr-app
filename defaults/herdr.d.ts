@@ -423,3 +423,30 @@ export function nextCommand(): Promise<string>;
  * Watch what you show, not a whole home folder (node_modules is a lot of events).
  */
 export function watchFolder(path: string): Promise<string[]>;
+
+/**
+ * What this copy shows: the dirs it watches one level deep each, and nothing else.
+ * The first dir is its root — the call fails when that one can't be watched (a
+ * network drive, a folder that went away), so the mod can fall back to a timer.
+ * The rest are the folders it has open and, for a files panel, its git dir (which
+ * may sit beside the worktree in a linked checkout). Pass the same list again and
+ * nothing changes; pass one more dir and only that watch is added. A dir that no
+ * longer exists is dropped from the set, not an error.
+ *
+ * Watching only what is shown is what keeps a build in `target/` or an npm install
+ * in `node_modules/` from waking the panel at all: those dirs are never watched.
+ *   watchDirs(id, [root, ...openFolders, gitDir]);
+ */
+export function watchDirs(id: string, dirs: string[]): void;
+
+/**
+ * Resolves with the shown dirs whose contents changed, spelled as `watchDirs` was
+ * given them (one level deep: a file changed in a dir reports that dir). Changes
+ * are batched briefly, and dirs that changed while nobody waited are returned at
+ * once. Rejects when `unwatch` (or the app) stops the set — end the loop there.
+ *   cx.spawn(async (cx) => { for (;;) { this.changed(await watchChanges(id)); cx.notify(); } });
+ */
+export function watchChanges(id: string): Promise<string[]>;
+
+/** Gives a shown set's OS watcher back: the copy stopped showing those dirs. */
+export function unwatch(id: string): void;

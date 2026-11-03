@@ -160,20 +160,30 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
     for name in ["nextCommand", "watchFolder"] {
         module = module.async_function(name, |_| Ok(std::future::pending::<gpui_shell::HostResult>()));
     }
+    // A panel's shown dirs: the fixture records what it was shown and never reports
+    // a change (a test that wants one calls `this.changed` itself).
+    for name in ["watchDirs", "unwatch"] {
+        let calls = calls.clone();
+        module = module.function(name, move |a| {
+            calls.borrow_mut().effects.push((name.into(), (0..2).filter_map(|i| a.get(i).map(from_host)).collect()));
+            Ok(HostValue::Null)
+        });
+    }
+    module = module.async_function("watchChanges", |_| Ok(std::future::pending::<gpui_shell::HostResult>()));
     for name in ["exec", "hc", "readTextFile", "readDir", "writeTextFile", "sendFeedback"] {
         let calls = calls.clone();
         let obsidian = obsidian.clone();
         module = module.async_function(name, move |a| {
             let first = a.get(0).map(from_host).unwrap_or(Value::Null);
             // Opening a URI hands it to the system: recorded, and never a failure.
-            if name == "exec" && matches!(first.as_str(), Some("cmd" | "open" | "xdg-open")) {
+            if name == "exec" && matches!(first.as_str(), Some("cmd" | "open" | "xdg-open" | "explorer.exe")) {
                 calls
                     .borrow_mut()
                     .effects
                     .push((name.into(), (0..2).filter_map(|i| a.get(i).map(from_host)).collect()));
             }
             let reply = match name {
-                "exec" if matches!(first.as_str(), Some("cmd" | "open" | "xdg-open")) => Some(json!({"code":0,"stdout":"","stderr":""})),
+                "exec" if matches!(first.as_str(), Some("cmd" | "open" | "xdg-open" | "explorer.exe")) => Some(json!({"code":0,"stdout":"","stderr":""})),
                 "readTextFile" if first == "/fixture/app/settings.json" || first == "/fixture/.ssh/config" => Some(Value::Null),
                 // opencode's service file: absent, so a usage mod shows no windows.
                 "readTextFile" if first == "/fixture/.local/state/opencode/service.json" => Some(Value::Null),
@@ -198,6 +208,7 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
                     if first == "git"
                         && [
                             json!(["rev-parse", "--show-toplevel"]),
+                            json!(["rev-parse", "--absolute-git-dir", "--show-toplevel"]),
                             json!(["rev-parse", "--path-format=absolute", "--git-common-dir"]),
                             json!(["status", "--porcelain=v2", "--branch"]),
                             json!(["--no-optional-locks", "-c", "core.fsmonitor=false", "status", "--porcelain=v2", "--branch"]),
@@ -723,11 +734,16 @@ fn files_panel_rows_hand_a_press_to_the_app(cx: &mut TestAppContext) {
 /// again, and give back what the handlers did. Two draws: the first starts the
 /// folder load, the second lays the rows out after it lands.
 fn files_row(cx: &mut TestAppContext, staged: &Staged, values: BTreeMap<String, Value>, y: f32, click: bool) -> Vec<(String, Vec<Value>)> {
-    use gpui::{Modifiers, MouseButton, VisualTestContext, point, px, size};
+    files_row_with(cx, staged, values, y, gpui::MouseButton::Left, click)
+}
+
+/// As `files_row`, with the button given: a right press opens a row's menu.
+fn files_row_with(cx: &mut TestAppContext, staged: &Staged, values: BTreeMap<String, Value>, y: f32, button: gpui::MouseButton, click: bool) -> Vec<(String, Vec<Value>)> {
+    use gpui::{Modifiers, VisualTestContext, point, px, size};
     use std::ops::Deref;
     let calls = Rc::new(RefCell::new(Calls::default()));
     let policy = Policy::new()
-        .with_capabilities(Capabilities::new().storage(true).read_roots([staged.0.clone()]))
+        .with_capabilities(Capabilities::new().storage(true).clipboard_write(true).read_roots([staged.0.clone()]))
         .with_host_module(module(values, calls.clone()))
         .unwrap();
     gpui_shell::policy::set_default(policy);
@@ -742,12 +758,104 @@ fn files_row(cx: &mut TestAppContext, staged: &Staged, values: BTreeMap<String, 
     visual.update(|window, cx| window.draw(cx).clear(cx));
     visual.run_until_parked();
     // Rows start after the header (42) and the tree's padding (6): 28 each.
-    visual.simulate_mouse_down(point(px(80.), px(y)), MouseButton::Left, Modifiers::none());
+    visual.simulate_mouse_down(point(px(80.), px(y)), button, Modifiers::none());
     if click {
-        visual.simulate_mouse_up(point(px(80.), px(y)), MouseButton::Left, Modifiers::none());
+        visual.simulate_mouse_up(point(px(80.), px(y)), button, Modifiers::none());
         visual.run_until_parked();
     }
     calls.borrow().effects.clone()
+}
+
+/// The items of the menu a right press opened, as `openOverlay` recorded them.
+fn files_menu(effects: &[(String, Vec<Value>)]) -> Value {
+    effects
+        .iter()
+        .find(|(name, args)| name == "openOverlay" && args[0]["mod"] == json!("files"))
+        .map(|(_, args)| args[0]["props"]["menu"]["items"].clone())
+        .unwrap_or_else(|| panic!("a right press on a row must open its menu: {effects:?}"))
+}
+
+#[gpui::test]
+fn files_panel_right_click_offers_the_file_manager_here(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    let right = |cx: &mut TestAppContext, y: f32| {
+        files_row_with(cx, &staged, fixture(true, props(), updates("current", "current")), y, gpui::MouseButton::Right, false)
+    };
+    // The first row is the fixture's src/ folder, the second its README.md: a
+    // folder opens, a file is shown in the folder that holds it.
+    let items = files_menu(&right(cx, 62.));
+    assert_eq!(items[0]["label"], json!("Open in File Manager"));
+    assert_eq!(items[0]["reveal"], json!({"path": "/fixture/project/src", "dir": true}));
+    let items = files_menu(&right(cx, 90.));
+    assert_eq!(items[0]["label"], json!("Show in File Manager"));
+    assert_eq!(items[0]["reveal"], json!({"path": "/fixture/project/README.md", "dir": false}));
+    assert_eq!(items[1]["label"], json!("Copy path"));
+    assert_eq!(items[1]["copy"], json!("/fixture/project/README.md"));
+}
+
+#[gpui::test]
+fn files_panel_another_machine_gets_no_file_manager_item(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    let mut values = fixture(true, props(), updates("current", "current"));
+    // The fixture's second space lives on "remote": show it and focus its pane.
+    values.get_mut("spaces").unwrap()[0]["active"] = json!(false);
+    values.get_mut("spaces").unwrap()[1]["active"] = json!(true);
+    values.insert("focused".into(), json!({"space":"s2","tab":"tab2","pane":"p2","terminal":"t2","agent":"t2","shown":null,"cwd":"/remote/project"}));
+    let items = files_menu(&files_row_with(cx, &staged, values, 62., gpui::MouseButton::Right, false));
+    // A file manager is a window on this computer: a remote path only gets its path copied.
+    assert_eq!(items.as_array().map(Vec::len), Some(1), "{items}");
+    assert_eq!(items[0]["label"], json!("Copy path"));
+    assert_eq!(items[0]["copy"], json!("/remote/project/src"));
+}
+
+/// Mount the row menu itself (the popup `openOverlay` would show) and click one
+/// of its rows: its padding (5) and half a row each.
+fn files_menu_click(cx: &mut TestAppContext, staged: &Staged, mut values: BTreeMap<String, Value>, item: usize) -> Vec<(String, Vec<Value>)> {
+    values.insert("props".into(), json!({"overlay":"o1","menu":{"items":[
+        {"label":"Open in File Manager","icon":"folder","reveal":{"path":"/fixture/project/src","dir":true}},
+        {"label":"Copy path","icon":"files","copy":"/fixture/project/src"}]}}));
+    files_row_with(cx, staged, values, 5.0 + 31.0 * item as f32 + 15.0, gpui::MouseButton::Left, true)
+}
+
+#[gpui::test]
+fn files_row_menu_opens_a_folder_in_the_file_manager(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    let effects = files_menu_click(cx, &staged, fixture(true, props(), updates("current", "current")), 0);
+    assert!(effects.iter().any(|(name, _)| name == "closeOverlay"), "a chosen item closes the menu: {effects:?}");
+    let (_, args) = effects
+        .iter()
+        .find(|(name, args)| name == "exec" && args.first() == Some(&json!("xdg-open")))
+        .unwrap_or_else(|| panic!("the first item opens the folder: {effects:?}"));
+    assert_eq!(args[1], json!(["/fixture/project/src"]));
+}
+
+#[gpui::test]
+fn files_row_menu_shows_a_windows_file(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    let mut values = fixture(true, props(), updates("current", "current"));
+    values.get_mut("window").unwrap()["platform"] = json!("windows");
+    values.insert("props".into(), json!({"overlay":"o1","menu":{"items":[
+        {"label":"Show in File Explorer","icon":"file-text","reveal":{"path":"D:\\proj\\README.md","dir":false}}]}}));
+    let effects = files_row_with(cx, &staged, values, 20., gpui::MouseButton::Left, true);
+    let (_, args) = effects
+        .iter()
+        .find(|(name, args)| name == "exec" && args.first() == Some(&json!("explorer.exe")))
+        .unwrap_or_else(|| panic!("a file is shown in Explorer with /select: {effects:?}"));
+    assert_eq!(args[1], json!(["/select,D:\\proj\\README.md"]));
+}
+
+#[gpui::test]
+fn files_row_menu_copies_a_path(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    let effects = files_menu_click(cx, &staged, fixture(true, props(), updates("current", "current")), 1);
+    assert!(effects.iter().any(|(name, _)| name == "closeOverlay"), "a chosen item closes the menu: {effects:?}");
+    assert!(!effects.iter().any(|(name, _)| name == "exec"), "Copy path runs nothing: {effects:?}");
+    assert_eq!(cx.read_from_clipboard().and_then(|item| item.text()), Some("/fixture/project/src".into()));
 }
 
 #[gpui::test]
@@ -771,6 +879,25 @@ fn files_panel_press_sends_path_drag(cx: &mut TestAppContext) {
     values.get_mut("panes").unwrap()[0]["cwd"] = json!("D:\\proj");
     let args = drag(&files_row(cx, &staged, values, 62., false));
     assert_eq!(args["paths"], json!(["D:\\proj\\src"]));
+}
+
+#[gpui::test]
+fn files_panel_watches_exactly_the_dirs_it_shows(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    let watched = |effects: &[(String, Vec<Value>)]| -> Vec<Vec<Value>> {
+        effects
+            .iter()
+            .filter(|(name, _)| name == "watchDirs")
+            .map(|(_, args)| args.clone())
+            .collect()
+    };
+    // No folder is open yet: the app watches the shown folder, and nothing else —
+    // a build in an unshown `target/` is not an event at all.
+    let effects = files_row(cx, &staged, fixture(true, props(), updates("current", "current")), 62., false);
+    let calls = watched(&effects);
+    let args = calls.last().unwrap_or_else(|| panic!("the panel must tell the app what it shows: {effects:?}"));
+    assert_eq!(args[1], json!(["/fixture/project"]), "{effects:?}");
 }
 
 #[gpui::test]
