@@ -1,5 +1,27 @@
 # Herdr changelog
 
+## [0.1.18] - 2026-11-04
+<!-- spotlight -->
+
+### New
+- **Find in a terminal.** Ctrl+Shift+F (Cmd+F on macOS) opens a find bar in the focused terminal and searches its screen and scrollback. Enter and Shift+Enter move between matches, Escape closes it, and each terminal keeps its own query. (#436)
+- **Scroll a terminal's history with a thumb.** A slim scrollbar at the terminal pane's right edge shows where you are in the scrollback and drags to move through it. Turn it off with `pane_scrollbars` in settings.json. (#428)
+- Mods and agents can scroll a terminal's history with `terminal.scroll {lines | pages | to}`.
+- A key can bind a command with typed, named arguments: `{"command": "layout.resize", "args": {"id": "sidebar", "px": 240}}`.
+- A `keys.json` you never edited gets the release's new shortcuts when you upgrade. Once you edit it, even whitespace, the whole file stays as yours and new defaults are left out.
+
+### Fixed
+- On Windows, links open in your default browser and editor instead of being handed to Explorer's own arguments.
+- On Windows, plain rectangles and backgrounds draw with a small shader, so busy windows use less of the graphics card.
+- A tab you don't see keeps its terminals at the size the panes will draw them, so switching back doesn't reflow. (#340)
+- A program starts at the size and display it's shown with, so its first frame isn't laid out for another pane.
+- On macOS, updating the core leaves a complete app bundle behind, and Herdr finds a core in its current or older bundle folder.
+- On a remote Windows machine, agent checks and the Files panel work instead of failing without `sh`.
+- The agents and worktree lists read the panes once per draw instead of once per row, so big windows stay responsive. (#484, #485, #486)
+- Selected markdown text draws behind the letters instead of over them.
+- A symbol too big for its terminal cell is scaled down instead of covering its neighbors.
+- Find keeps working after the core reconnects, its highlights follow scrolling, a paste goes into the find field, and Escape reaches the program once the terminal has focus.
+
 ## [0.1.17] - 2026-11-03
 <!-- spotlight -->
 
