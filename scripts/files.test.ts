@@ -20,6 +20,44 @@ const directory = new Function("readDir", `${directorySource}; return directory;
     ),
 );
 
+test("Files retries a remote Windows directory with PowerShell on that machine", async () => {
+  const calls: { command: string; args: string[]; on: string }[] = [];
+  const list = loadDirectory(async (command: string, args: string[], options: { on: string }) => {
+    calls.push({ command, args, on: options.on });
+    if (command === "sh") throw new Error("herdr.exec: cannot start sh: program not found");
+    return { code: 0, stdout: '{"name":"中文.txt","dir":false}', stderr: "" };
+  }, "linux");
+  const path = "C:/O’Brien's $folder";
+  expect(await list(path, "winvm")).toEqual([{ name: "中文.txt", dir: false }]);
+  expect(calls.map(c => [c.command, c.on])).toEqual([["sh", "winvm"], ["powershell", "winvm"]]);
+  expect(calls[0].args.at(-1)).toBe(path);
+  expect(calls[1].args.at(-1)).toContain("'C:/O’’Brien''s $folder'");
+  expect(calls[1].args.at(-1)).toContain("[Console]::OutputEncoding");
+});
+
+test("Files does not mask remote command failures with PowerShell", async () => {
+  for (const failure of [new Error("connection lost"), new Error("cannot start sh: permission denied"), { code: 1, stdout: "", stderr: "folder denied" }]) {
+    const calls: string[] = [];
+    const list = loadDirectory(async (command: string) => {
+      calls.push(command);
+      if (failure instanceof Error) throw failure;
+      return failure;
+    }, "linux");
+    await expect(list("/folder", "linuxvm")).rejects.toThrow(failure instanceof Error ? failure.message : failure.stderr);
+    expect(calls).toEqual(["sh"]);
+  }
+});
+
+test("Files keeps remote POSIX directory listings on sh", async () => {
+  const calls: string[] = [];
+  const list = loadDirectory(async (command: string) => {
+    calls.push(command);
+    return { code: 0, stdout: "d\0folder\0f\0file.txt\0", stderr: "" };
+  }, "windows");
+  expect(await list("/folder", "linuxvm")).toEqual([{ name: "folder", dir: true }, { name: "file.txt", dir: false }]);
+  expect(calls).toEqual(["sh"]);
+});
+
 test("Files lists literal folder names, not shell expressions", async () => {
   const root = await mkdtemp(join(process.platform === "linux" ? "/var/tmp" : tmpdir(), "herdr-files-"));
   try {
