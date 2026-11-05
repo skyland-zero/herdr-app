@@ -5,7 +5,7 @@
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout } from "herdr";
+import { spaces, machines, panes, run, openOverlay, exec, hc, theme, shared, setShared, watchFolder, window, layout, hostStats } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -30,9 +30,18 @@ const RAIL_CELL = 32;
 const railCell = (el) => h_flex().flex_none().justify_center().child(el);
 const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);
 const base = (path) => path.replace(/\/+$/, "").split("/").pop();
+// A 0–1 share as the list shows it.
+const pct = (share) => Math.round((share ?? 0) * 100);
 // Changes made outside Herdr (an editor's save, a commit in another app): looked
 // for this often, in repos the list shows, while the window is in front.
 const FALLBACK = 60000;
+// How often CPU and memory are asked for. The app answers from the last look it
+// took, and starts a new one only when that is old enough (a second here, longer
+// on a machine away: see `hostStats`), so asking twice a second costs a lookup
+// and shows each new number within half a second.
+const STATS_EVERY = 500;
+// While the window is behind another: no need to keep the numbers that fresh.
+const STATS_IDLE = 5000;
 
 // What a stored color name looks like on an avatar (the same in every mod
 // that draws space avatars): one strong color per hue, light and dark alike.
@@ -64,11 +73,13 @@ export default class Spaces extends View {
     this.pressed = null;
     this.over = null;
     this.machines = [];
+    this.stats = new Map(); // machine -> what `hostStats` last said about it
     this.reconnecting = JSON.parse(localStorage.getItem("machines.reconnecting") ?? "{}");
     for (const state of Object.values(this.reconnecting)) state.busy = false;
     this.folded = new Set(JSON.parse(localStorage.getItem("machines.folded") ?? "[]"));
     this.refreshMachines(cx);
     cx.timer.every(15000, cx => this.refreshMachines(cx));
+    cx.timer.every(STATS_EVERY, cx => this.refreshStats(cx));
     // `git status` walks the whole tree, on another machine a process there:
     // only when its answer could have changed (see `due`).
     cx.timer.every(250, (cx) => this.checkNew(cx));
@@ -128,6 +139,71 @@ export default class Spaces extends View {
       try { const r = await hc(["machine", "ls", "--json"]); if (r.code === 0) this.machines = (JSON.parse(r.stdout).machines ?? []).filter((m) => !m.temporary); } catch {}
       cx.notify();
     });
+  }
+
+  // CPU and memory, for the machines on show: this computer, and every machine
+  // with a space here or a header (a folded one still has its header). Asked for
+  // now and then rather than when drawn: a number that arrives redraws the list.
+  refreshStats(cx) {
+    // The rail shows no numbers, and a hidden sidebar's numbers are for nobody.
+    if (narrow()) return;
+    const names = new Set([
+      null,
+      ...spaces().map(s => s.machine ?? null),
+      ...this.machines.map(m => m.name),
+      ...Object.keys(this.reconnecting),
+    ]);
+    // Behind another window nobody is watching the numbers: ask less often.
+    // In front of it, how often a new look is taken is the app's business (see
+    // `hostStats`): a call inside that gap is a lookup that starts nothing.
+    const every = window().active ? 0 : STATS_IDLE;
+    // Every machine with a header, folded or not: a folded header still shows them.
+    for (const name of names) this.askStats(name, every, cx);
+    for (const name of [...this.stats.keys()]) if (!names.has(name)) this.stats.delete(name);
+    for (const name of [...(this.askedAt?.keys() ?? [])]) if (!names.has(name)) this.askedAt.delete(name);
+  }
+
+  askStats(name, every, cx) {
+    const at = (this.askedAt ??= new Map());
+    if (!at.has(name)) at.set(name, 0);
+    if (Date.now() - at.get(name) < every) return;
+    at.set(name, Date.now());
+    cx.spawn(async cx => {
+      try {
+        const before = this.stats.get(name);
+        const now = await hostStats({ on: name });
+        // Only what the list shows decides whether to redraw: `age` moves every second.
+        const shown = (s) => s && JSON.stringify([pct(s.cpu), pct(s.mem), s.error ?? null]);
+        if (shown(before) !== shown(now)) {
+          this.stats.set(name, now);
+          cx.notify();
+        }
+      } catch {
+        // The call itself failed (a mod reload, say): show nothing rather than
+        // something stale.
+        if (this.stats.delete(name)) cx.notify();
+      }
+    });
+  }
+
+  // "cpu 12% · mem 47%", and nothing at all until there is a number to show.
+  statsTail(name, id, t) {
+    const s = this.stats.get(name);
+    if (!s || s.error) return null;
+    const parts = [];
+    if (s.cpu != null) parts.push(`cpu ${pct(s.cpu)}%`);
+    if (s.mem != null) parts.push(`mem ${pct(s.mem)}%`);
+    return parts.length ? div().id(id).flex_none().truncate().text_size(10).child(parts.join(" \u00b7 ")) : null;
+  }
+
+  // Every machine the list has a header for, this computer (null) first.
+  heads() {
+    const remote = [...new Set([
+      ...spaces().map(s => s.machine),
+      ...this.machines.map(m => m.name),
+      ...Object.keys(this.reconnecting),
+    ].filter(Boolean))].sort();
+    return [null, ...remote];
   }
 
   rebuilt(machine) {
@@ -301,7 +377,7 @@ export default class Spaces extends View {
   grouped(t, collapsed) {
     const rows = this.ordered();
     const draw = (r) => (collapsed ? this.compact(r, t) : this.row(r, t));
-    const remote = [...new Set([...rows.map(r => r.w.machine).filter(Boolean), ...this.machines.map(m => m.name), ...Object.keys(this.reconnecting)])].sort();
+    const remote = this.heads().slice(1);
     const loading = m => {
       const layout = machines().find(k => k.name === m)?.layout;
       return layout === "loading" || (!layout && this.machines.some(k => k.name === m && k.state === "connected"))
@@ -351,7 +427,10 @@ export default class Spaces extends View {
         .when(!collapsed, el => el.child(svg("mods/workspace-chrome/plus.svg").size(12)).child("New space there"));
       if (!collapsed && rebuilt) return [head];
       const cell = collapsed ? railCell : (el) => el;
-      return [cell(head), ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : cell(empty)])];
+      // Under its name, and under nothing else: the numbers are about the machine.
+      const tail = collapsed ? null : this.statsTail(m, `machine-stats-${m ?? "local"}`, t);
+      const statsRow = tail && h_flex().h(15).flex_none().pl(28).pr(8).items_center().when(!connected, el => el.opacity(0.6)).child(tail);
+      return [cell(head), ...(statsRow ? [statsRow] : []), ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : cell(empty)])];
     });
   }
 
@@ -465,10 +544,14 @@ export default class Spaces extends View {
       changed = true;
     }
     if (changed) setShared("space.colors", kept);
+    const only = this.heads().length === 1 ? this.statsTail(null, "spaces-stats", t) : null;
     return v_flex().size_full().min_h(0).bg(t.chrome).text_size(13)
       .child(h_flex().h(31).pl(16).pr(10).items_center().justify_between().text_size(11.5).text_color(t.dim)
         .when(collapsed, el => el.pl(0).pr(0).justify_center())
-        .when(!collapsed, el => el.child("Spaces"))
+        // One machine only: it has no header to put the numbers under.
+        .child(h_flex().flex_1().min_w(0).items_center().justify_between().gap(8)
+          .when(!collapsed, el => el.child("Spaces"))
+          .when(only && !collapsed, el => el.child(only)))
         .child(div().id("space-new").size(26).flex_none().flex().items_center().justify_center().rounded(6).hover(s => s.bg(t.hover).text_color(t.foreground))
           .on_click(() => run("space.new")).child(svg("mods/workspace-chrome/plus.svg").size(14))))
       .child(v_flex().flex_1().min_h(0).px(collapsed ? 0 : 8).pb(14).overflow_y_scrollbar().mode("always")

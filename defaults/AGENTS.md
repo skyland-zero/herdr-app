@@ -1015,6 +1015,11 @@ All of it is in `herdr.d.ts`. In short:
   start one with `argv: agent.run`.
   `pickFolder({ prompt })`: the system's folder picker (here only),
   resolves with the folder or null.
+  `hostStats({ on })`: CPU and memory, `cpu` and `mem` as fractions of the whole
+  machine (0–1), plus `memTotal`, `cores`, `age` (ms since they were read) and
+  `error`. Cached: an ask about a second after the last one (a few seconds on a
+  machine away) answers with what is known and starts nothing, so asking on a
+  timer is cheap. The first answer has no `cpu` yet (it takes two looks).
 - Files: `readDir(path, { on })` (a folder's `{ name, dir }` rows, sorted,
   here or on that machine), `readTextFile(path, { on })` (here, or on that machine),
   `writeTextFile(path, text, expected)` (here only), and

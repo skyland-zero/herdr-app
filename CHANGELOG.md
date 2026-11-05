@@ -1,5 +1,25 @@
 # Herdr changelog
 
+## [0.1.19] - 2026-11-05
+<!-- spotlight -->
+
+### New
+- **CPU and memory on the sidebar.** Each machine in the Spaces list shows its CPU and memory under its name; with one machine only, the numbers sit on the right of the Spaces heading. A machine you're connected to reports its own, Linux or Windows.
+- Mods and agents can read the same numbers with `hostStats({ on })`, cached so asking on a timer starts nothing.
+- `exec` takes a `timeout` in milliseconds, up to 10 minutes, locally and on another machine. The Worktree mod uses it so `git worktree add` and `remove` on a large repository finish instead of giving up at 30 seconds.
+
+### Fixed
+- The sidebar rail's machines, spaces and their badges sit on one line each, centred. (#453, thanks @log4b)
+- The changes list fills its panel and scrolls through every changed file. (#474, thanks @shadownrx)
+- The command palette shows ⌘ only on macOS, not on Windows and Linux. (#478, thanks @JJLiebig)
+- Long theme names stay inside their cards in the settings window. (#437, thanks @martintrifunov)
+- The settings window's frame draws its rounded background. (#457, thanks @yankewei)
+- The command palette keeps scrolling past its group titles. (#531, thanks @patrick-xin)
+- An agent's toast names it from the programs table, so a program you renamed reads as you named it. (#530, thanks @thuanlm215)
+- A click a program takes for itself ends Herdr's text selection, so a copy can't repeat it. (#369, thanks @sundarshahi)
+- `herdr-app check` keeps a mod's shared state in memory and leaves `shared.json` untouched. (#516, thanks @JJLiebig)
+- New spaces, tabs and splits retry in the machine's home when the inherited folder is gone, and keep their launch folder while a burst of them starts. (#511, thanks @JJLiebig)
+
 ## [0.1.18] - 2026-11-04
 <!-- spotlight -->
 

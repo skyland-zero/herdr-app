@@ -10,12 +10,13 @@ function harness(replies: unknown[] = [], storage = new Map<string, string>(), s
   const tasks: Promise<unknown>[] = [];
   const availability = [{ name: null as string | null, layout: "ready" }];
   const moves: { id: string; index: number }[] = [];
+  const statCalls: string[] = [];
   const handlers: Record<string, (...args: any[]) => void> = {};
   const element: any = new Proxy({}, { get: (_, method) => (...args: any[]) => {
     if (String(method).startsWith("on_")) handlers[String(method)] = args.at(-1);
     return element;
   } });
-  const Spaces = new Function("View", "hc", "localStorage", "spaces", "panes", "run", "v_flex", "h_flex", "div", "svg", "shared", "machines", `${source}; return Spaces;`)(
+  const Spaces = new Function("View", "hc", "localStorage", "spaces", "panes", "run", "v_flex", "h_flex", "div", "svg", "shared", "machines", "hostStats", "window", `${source}; return Spaces;`)(
     class {},
     async (args: string[]) => {
       calls.push(args);
@@ -30,13 +31,20 @@ function harness(replies: unknown[] = [], storage = new Map<string, string>(), s
       moves.push(args);
     },
     ...Array(4).fill(() => element), () => null, () => availability,
+    // CPU and memory, only ever asked from a timer: nothing here needs a number.
+    async (options: { on?: string | null } = {}) => {
+      statCalls.push(String(options.on ?? "here"));
+      return { cpu: null, mem: null, memTotal: null, cores: null, age: null, error: null };
+    },
+    () => ({ active: true }),
   );
   const view = new Spaces();
   view.reconnecting = {};
   view.folded = new Set(["cloud"]);
+  view.stats = new Map();
   view.refreshMachines = () => {};
   const cx = { timer: { every() {} }, notify() {}, spawn(fn: (cx: unknown) => Promise<unknown>) { tasks.push(fn(cx)); } };
-  return { view, calls, tasks, cx, storage, moves, handlers, snapshot, availability };
+  return { view, calls, tasks, cx, storage, moves, handlers, snapshot, availability, statCalls };
 }
 
 const machine = { name: "cloud", id: "old", target: "user@host", session: null, via: false };
@@ -269,6 +277,39 @@ test("settled retries wait for the affected machine to be ready", () => {
   } finally {
     now.mockRestore();
   }
+});
+
+test("numbers sit under a machine's name, and show nothing until there are numbers", () => {
+  const { view } = harness();
+  expect(view.statsTail(null, "spaces-stats", {})).toBeNull();
+  view.stats.set(null, { cpu: 0.8, mem: 0.52, memTotal: 8e9, cores: 8, age: 10, error: null });
+  expect(view.statsTail(null, "spaces-stats", {})).toBeTruthy();
+  // A machine that could not be read says nothing rather than a half line.
+  view.stats.set("cloud", { cpu: 0.4, mem: null, memTotal: null, cores: null, age: 0, error: "unreachable" });
+  expect(view.statsTail("cloud", "machine-stats-cloud", {})).toBeNull();
+  // Only what is known: memory alone is still a line.
+  view.stats.set("cloud", { cpu: null, mem: 0.25, memTotal: 8e9, cores: 8, age: 0, error: null });
+  expect(view.statsTail("cloud", "machine-stats-cloud", {})).toBeTruthy();
+});
+
+test("a look is taken as often as the app allows, and only new numbers redraw", async () => {
+  const { view, tasks, statCalls, cx } = harness();
+  let notified = 0;
+  cx.notify = () => notified++;
+  // The same numbers every time: the first call changes what is shown, the rest not.
+  view.askStats(null, 0, cx);
+  await Promise.all(tasks);
+  expect(statCalls).toEqual(["here"]);
+  expect(notified).toBe(1);
+  view.askStats(null, 0, cx);
+  await Promise.all(tasks);
+  expect(statCalls).toEqual(["here", "here"]);
+  // Only the age moved, and the list does not show it: no redraw.
+  expect(notified).toBe(1);
+  // Inside the interval asked for (behind another window): not even asked.
+  view.askStats(null, 5000, cx);
+  await Promise.all(tasks);
+  expect(statCalls).toHaveLength(2);
 });
 
 test("no reconciliation without a rendered sidebar", () => {

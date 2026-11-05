@@ -16,6 +16,23 @@ export function exec(command: string, args?: string[], options?: { cwd?: string;
 /** Runs `hc` (herdr-core) with the given arguments. Add "--json" for machine output. */
 export function hc(args: string[]): Promise<ExecResult>;
 
+/** CPU and memory. `cpu` and `mem` are fractions of the whole machine (0–1), or
+ *  null while there is nothing to say yet: the first ask has no `cpu` (it needs two
+ *  looks), and a machine that cannot be read has the `error` instead.
+ *  Cached: a call within about a second (here) or a few seconds (a machine away)
+ *  answers with the numbers already had and starts nothing, so calling it on a
+ *  timer is cheap. `on`: that machine (a space's `machine`). `age`: milliseconds
+ *  since those numbers were read. */
+export interface HostStats {
+  cpu: number | null;
+  mem: number | null;
+  memTotal: number | null;
+  cores: number | null;
+  age: number | null;
+  error: string | null;
+}
+export function hostStats(options?: { on?: string | null }): Promise<HostStats>;
+
 /** The user's home directory. */
 export function home(): string;
 /** The app's folder (`~/.config/herdr-app`, or `$HERDR_APP_HOME`): settings.json, keys.json, layouts/. */

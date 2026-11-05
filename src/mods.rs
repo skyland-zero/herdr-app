@@ -987,6 +987,11 @@ fn module(inst: Instance, copy: u64) -> HostModule {
             let command = a.string(0)?.to_owned();
             Ok(exec_future(command, strings(a.get(1)), opt_str(a.get(2), "cwd"), opt_str(a.get(2), "on"), exec_limit(a.get(2))?))
         })
+        // CPU and memory, of this computer or of one away: cached, so asking often is
+        // free. See `defaults/herdr.d.ts`.
+        .async_function("hostStats", |a| {
+            Ok(crate::host_stats::stats(opt_str(a.get(0), "on")))
+        })
         .async_function("readTextFile", |a| {
             let path = a.string(0)?.to_owned();
             let on = opt_str(a.get(1), "on");

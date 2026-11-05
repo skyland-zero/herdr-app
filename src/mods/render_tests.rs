@@ -170,7 +170,7 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
         });
     }
     module = module.async_function("watchChanges", |_| Ok(std::future::pending::<gpui_shell::HostResult>()));
-    for name in ["exec", "hc", "readTextFile", "readDir", "writeTextFile", "sendFeedback"] {
+    for name in ["exec", "hc", "readTextFile", "readDir", "writeTextFile", "sendFeedback", "hostStats"] {
         let calls = calls.clone();
         let obsidian = obsidian.clone();
         module = module.async_function(name, move |a| {
@@ -196,6 +196,8 @@ fn module(values: BTreeMap<String, Value>, calls: Rc<RefCell<Calls>>) -> HostMod
                     .and_then(|p| p.strip_suffix(".json"))
                     .filter(|n| crate::window::shipped_layouts().contains(n))
                     .map(|_| json!("{}")),
+                // A machine's CPU and memory: the sidebar shows it, so it is asked often.
+                "hostStats" => Some(json!({"cpu":0.25,"mem":0.5,"memTotal":34359738368u64,"cores":8,"age":0,"error":null})),
                 "hc" if first == json!(["machine", "ls", "--json"]) => {
                     Some(json!({"code":0,"stdout":"{\"machines\":[{\"name\":\"remote\",\"state\":\"online\"}]}","stderr":""}))
                 }
@@ -444,6 +446,28 @@ fn check_materializes_retained_elements_in_a_rendered_view(cx: &mut TestAppConte
         assert!(!description.is_empty(), "{body}");
         gpui::AnyWindowHandle::from(window).update(cx, |_, window, _| window.remove_window()).unwrap();
     }
+}
+
+#[gpui::test]
+fn cpu_and_memory_sit_under_their_machines_name(cx: &mut TestAppContext) {
+    cx.update(gpui_shell::init);
+    let staged = Staged::new();
+    // More than one machine: each header carries its own numbers.
+    let setup = "this.machines = [{name:'cloud', state:'connected'}]; \
+        this.folded.add('cloud'); \
+        this.stats.set('cloud', {cpu:0.5, mem:0.25, memTotal:8000000000, cores:4, age:900, error:null});";
+    let tree = describe(cx, &staged, "mods/spaces", false, props(), updates("current", "current"), Some(setup)).unwrap();
+    assert!(tree.contains("machine-stats-cloud"), "{tree}");
+    assert!(tree.contains("cpu 50% \u{b7} mem 25%"), "{tree}");
+    // One machine has no header, so its numbers go up by the title.
+    let setup = "this.stats.set(null, {cpu:0.125, mem:0.75, memTotal:1, cores:8, age:0, error:null});";
+    let tree = describe(cx, &staged, "mods/spaces", false, props(), updates("current", "current"), Some(setup)).unwrap();
+    assert!(tree.contains("spaces-stats"), "{tree}");
+    assert!(tree.contains("cpu 13% \u{b7} mem 75%"), "{tree}");
+    // A machine that cannot be read: no numbers, and no half-formed line.
+    let setup = "this.stats.set(null, {cpu:null, mem:null, memTotal:null, cores:null, age:null, error:'unreachable'});";
+    let tree = describe(cx, &staged, "mods/spaces", false, props(), updates("current", "current"), Some(setup)).unwrap();
+    assert!(!tree.contains("spaces-stats"), "{tree}");
 }
 
 #[gpui::test]
