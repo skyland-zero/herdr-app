@@ -458,12 +458,13 @@ fn cpu_and_memory_sit_under_their_machines_name(cx: &mut TestAppContext) {
         this.stats.set('cloud', {cpu:0.5, mem:0.25, memTotal:8000000000, cores:4, age:900, error:null});";
     let tree = describe(cx, &staged, "mods/spaces", false, props(), updates("current", "current"), Some(setup)).unwrap();
     assert!(tree.contains("machine-stats-cloud"), "{tree}");
-    assert!(tree.contains("cpu 50% \u{b7} mem 25%"), "{tree}");
+    assert!(tree.contains("cpu") && tree.contains("mem"), "{tree}");
+    assert!(tree.contains("50%") && tree.contains("25%"), "{tree}");
     // One machine has no header, so its numbers go up by the title.
     let setup = "this.stats.set(null, {cpu:0.125, mem:0.75, memTotal:1, cores:8, age:0, error:null});";
     let tree = describe(cx, &staged, "mods/spaces", false, props(), updates("current", "current"), Some(setup)).unwrap();
     assert!(tree.contains("spaces-stats"), "{tree}");
-    assert!(tree.contains("cpu 13% \u{b7} mem 75%"), "{tree}");
+    assert!(tree.contains("13%") && tree.contains("75%"), "{tree}");
     // A machine that cannot be read: no numbers, and no half-formed line.
     let setup = "this.stats.set(null, {cpu:null, mem:null, memTotal:null, cores:null, age:null, error:'unreachable'});";
     let tree = describe(cx, &staged, "mods/spaces", false, props(), updates("current", "current"), Some(setup)).unwrap();

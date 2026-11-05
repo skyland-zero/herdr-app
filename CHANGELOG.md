@@ -1,5 +1,11 @@
 # Herdr changelog
 
+## [0.1.20] - 2026-11-05
+<!-- spotlight -->
+
+### Fixed
+- CPU and memory read as two small meters with their numbers beside them, so how busy a machine is shows at a glance; a machine near its limit turns the bar orange, and red at 90%.
+
 ## [0.1.19] - 2026-11-05
 <!-- spotlight -->
 

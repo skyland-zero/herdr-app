@@ -32,6 +32,17 @@ const where = (s, ps) => JSON.stringify([s.machine ?? null, place(s, ps)]);
 const base = (path) => path.replace(/\/+$/, "").split("/").pop();
 // A 0–1 share as the list shows it.
 const pct = (share) => Math.round((share ?? 0) * 100);
+// One little meter: how full, and the number beside it. The bar says it at a
+// glance, and the track keeps a slot for the number so it never jogs.
+const gauge = (label, share, color, t) => {
+  const value = pct(share);
+  const bar = h_flex().flex_none().w(26).h(3).rounded(2).overflow_hidden().bg(t.border)
+    .child(div().h_full().w(`${value}%`).bg(color));
+  return h_flex().flex_none().gap(4).items_center()
+    .child(div().text_size(9.5).text_color(t.dim).child(label))
+    .child(bar)
+    .child(div().w(26).text_size(10).text_color(t.muted).text_right().child(`${value}%`));
+};
 // Changes made outside Herdr (an editor's save, a commit in another app): looked
 // for this often, in repos the list shows, while the window is in front.
 const FALLBACK = 60000;
@@ -186,14 +197,17 @@ export default class Spaces extends View {
     });
   }
 
-  // "cpu 12% · mem 47%", and nothing at all until there is a number to show.
+  // CPU and memory as two small meters, and nothing at all until there is a
+  // number to show.
   statsTail(name, id, t) {
     const s = this.stats.get(name);
     if (!s || s.error) return null;
+    // Full is worth a word: an orange bar and a red one say it before the number does.
+    const meter = (label, share, base) => gauge(label, share, share >= 0.9 ? t.blocked : share >= 0.75 ? t.ansi3 : base, t);
     const parts = [];
-    if (s.cpu != null) parts.push(`cpu ${pct(s.cpu)}%`);
-    if (s.mem != null) parts.push(`mem ${pct(s.mem)}%`);
-    return parts.length ? div().id(id).flex_none().truncate().text_size(10).child(parts.join(" \u00b7 ")) : null;
+    if (s.cpu != null) parts.push(meter("cpu", s.cpu, t.ansi6));
+    if (s.mem != null) parts.push(meter("mem", s.mem, t.ansi5));
+    return parts.length ? h_flex().id(id).flex_none().gap(10).items_center().children(parts) : null;
   }
 
   // Every machine the list has a header for, this computer (null) first.
@@ -428,8 +442,11 @@ export default class Spaces extends View {
       if (!collapsed && rebuilt) return [head];
       const cell = collapsed ? railCell : (el) => el;
       // Under its name, and under nothing else: the numbers are about the machine.
+      // Half a pixel past the header's own padding: a glyph's ink starts a little
+      // inside its box, as the icon's does, so this is what puts the digit "c" on
+      // the same vertical line as the left edge of the monitor.
       const tail = collapsed ? null : this.statsTail(m, `machine-stats-${m ?? "local"}`, t);
-      const statsRow = tail && h_flex().h(15).flex_none().pl(28).pr(8).items_center().when(!connected, el => el.opacity(0.6)).child(tail);
+      const statsRow = tail && h_flex().h(17).flex_none().px(8.5).items_center().when(!connected, el => el.opacity(0.6)).child(tail);
       return [cell(head), ...(statsRow ? [statsRow] : []), ...(folded ? [] : mine.length ? mine.map(draw) : [loading(m) ? loadingRow(m) : cell(empty)])];
     });
   }
