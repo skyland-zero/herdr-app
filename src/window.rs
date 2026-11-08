@@ -137,12 +137,16 @@ fn launch_failure(record: &Value, output: &str) -> Option<String> {
 /// sidebar, tab bar).
 const LAYOUTS: &[(&str, &str)] = &[
     ("main", include_str!("../defaults/layouts/main.json")),
+    ("rex-layout", include_str!("../defaults/layouts/rex-layout.json")),
     ("terminals", include_str!("../defaults/layouts/terminals.json")),
     ("win98", include_str!("../defaults/layouts/win98.json")),
 ];
 
 /// Pictures shipped layouts name as their `preview`, written beside them.
-const LAYOUT_PREVIEWS: &[(&str, &str)] = &[("win98.svg", include_str!("../defaults/layouts/win98.svg"))];
+const LAYOUT_PREVIEWS: &[(&str, &str)] = &[
+    ("rex-layout.svg", include_str!("../defaults/layouts/rex-layout.svg")),
+    ("win98.svg", include_str!("../defaults/layouts/win98.svg")),
+];
 
 pub fn shipped_layouts() -> Vec<&'static str> {
     LAYOUTS.iter().map(|(n, _)| *n).collect()

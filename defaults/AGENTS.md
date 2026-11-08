@@ -176,8 +176,12 @@ with a header; Files and Changes panels on the right, `files` and
 `changes`, opened from the tab bar and remembered per space (which ones:
 shared `"workspace.panels"`, set by the welcome); a status bar,
 `workspace-status`), and as examples `terminals` ("Terminals": tabs in
-the title bar, panes as cards, a space picker) and `win98`
-("Herdr 98": a whole desktop in one mod, `win98`). Add a layout by
+the title bar, panes as cards, a space picker), `rex-layout` ("Rex": a
+narrower sidebar with its own panel set, `rex-layout-workspace-chrome`,
+`rex-layout-spaces`, `rex-layout-agents`, `rex-layout-info`,
+`rex-layout-tabs`, `rex-layout-pane`, and a right-hand panel stack with
+Files, Changes and Ports) and `win98` ("Herdr 98": a whole desktop in one
+mod, `win98`). Add a layout by
 writing a new file. The Files panel supports Windows folder paths with spaces,
 parentheses and apostrophes, and preserves Unicode file and folder names
 (including Chinese). Directory links expand as folders; their contents load
@@ -847,6 +851,22 @@ has 120 programs (agents, editors, runtimes, tools, databases, infra);
   `spaces` sidebar nests worktree spaces under their repo's and shows each
   space's repo, branch, ahead/behind and uncommitted changes). Shipped mods
   are Herdr's; duplicate with `mod.clone` before editing.
+- `ports` and `ports-add` tunnel a remote machine's port to this computer
+  (the Rex layout's right-hand panel stack; any layout can show `ports`).
+  `ports` lists one row per rule, grouped by machine, with its state (up,
+  starting, waiting for a password, failed), the ssh log (`terminal.peek`),
+  and a right-click menu to start/restart/stop it, open it in the browser at
+  `http://localhost:<local>`, or copy the address and the ssh command.
+  `ports-add` is the dialog its `+` opens with props `{machine}`, asking for
+  the remote port (the local one defaults to it) and whether to keep it open
+  while Herdr runs. Rules live in `shared("ports.rules")`. A rule runs as a
+  background terminal named after its id and labelled `herdr.port=<id>`, so it
+  outlives the window: `<id>` on the machine's own `ssh` target, forwarding
+  `localhost:<local>` to `<host>:<remote>`.
+- The Rex layout's own mods (`rex-layout-*`) are shipped examples too: they
+  are `workspace-chrome`, `spaces`, `agents`, `tabs` and `pane` narrowed to
+  what that layout shows, and `rex-layout-info` (the workspace's branch and
+  worktree summary above the sidebar's footer).
 - `opencode-usage` is the one shipped mod that reaches the network: it shows
   the OpenCode Go plan's 5-hour, weekly and monthly windows
   (`GET https://opencode.ai/zen/go/v1/usage`, with a Go key it reads from the

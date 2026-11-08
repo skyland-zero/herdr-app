@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 200">
+  <!-- Herdr, rex-layout: one 44px chrome band, card panes on a canvas, no dividers. -->
+  <rect width="320" height="200" fill="#faf9f5"/>
+
+  <!-- the chrome band: sidebar brand on the left, tabs on the right -->
+  <rect x="0" y="0" width="320" height="10" fill="#f1f0ea"/>
+
+  <!-- sidebar -->
+  <rect x="0" y="10" width="45" height="150" fill="#f1f0ea"/>
+  <rect x="7" y="3" width="6" height="6" rx="1.5" fill="#c9c6bd"/>
+  <rect x="16" y="4" width="18" height="3" rx="1.5" fill="#b9b6ad"/>
+
+  <!-- sidebar rows: the active one is a pill, the rest are bare -->
+  <rect x="4" y="16" width="37" height="8" rx="2.5" fill="#e6e3d9"/>
+  <rect x="7" y="18" width="5" height="4" rx="1" fill="#7aa86f"/>
+  <rect x="15" y="19" width="17" height="2" rx="1" fill="#8a8a84"/>
+  <rect x="7" y="30" width="5" height="4" rx="1" fill="#5b8def"/>
+  <rect x="15" y="31" width="21" height="2" rx="1" fill="#c9c6bd"/>
+  <rect x="7" y="40" width="5" height="4" rx="1" fill="#e3814f"/>
+  <rect x="15" y="41" width="14" height="2" rx="1" fill="#c9c6bd"/>
+
+  <!-- section label + rows, lower half -->
+  <rect x="7" y="60" width="12" height="2" rx="1" fill="#b9b6ad"/>
+  <rect x="7" y="70" width="5" height="4" rx="1" fill="#8b6bb0"/>
+  <rect x="15" y="71" width="18" height="2" rx="1" fill="#c9c6bd"/>
+  <circle cx="40" cy="72" r="1.6" fill="#3fae6a"/>
+  <rect x="7" y="80" width="5" height="4" rx="1" fill="#8b6bb0"/>
+  <rect x="15" y="81" width="14" height="2" rx="1" fill="#c9c6bd"/>
+  <circle cx="40" cy="82" r="1.6" fill="#c2555f"/>
+
+  <rect x="7" y="150" width="5" height="4" rx="1" fill="#8a8a84"/>
+  <rect x="15" y="151" width="14" height="2" rx="1" fill="#c9c6bd"/>
+
+  <!-- footer -->
+  <line x1="0" y1="160" x2="45" y2="160" stroke="#e0ddd4" stroke-width="1"/>
+  <rect x="7" y="167" width="4" height="4" rx="1" fill="#b9b6ad"/>
+  <rect x="15" y="168" width="16" height="2" rx="1" fill="#c9c6bd"/>
+  <rect x="7" y="180" width="4" height="4" rx="1" fill="#b9b6ad"/>
+  <rect x="15" y="181" width="20" height="2" rx="1" fill="#c9c6bd"/>
+
+  <!-- tabs, on the chrome band: one active pill, one plain -->
+  <rect x="50" y="2" width="30" height="7" rx="2.5" fill="#ffffff" stroke="#e2e0d8" stroke-width="0.6"/>
+  <rect x="53" y="4" width="4" height="3" rx="1" fill="#3f6fb0"/>
+  <rect x="60" y="4" width="14" height="3" rx="1.5" fill="#b9b6ad"/>
+  <rect x="84" y="4" width="12" height="3" rx="1.5" fill="#c9c6bd"/>
+  <rect x="122" y="4" width="6" height="3" rx="1.5" fill="#c9c6bd"/>
+  <rect x="136" y="4" width="18" height="3" rx="1.5" fill="#c9c6bd"/>
+  <rect x="158" y="4" width="22" height="3" rx="1.5" fill="#c9c6bd"/>
+
+  <!-- canvas + pane card -->
+  <rect x="45" y="10" width="275" height="190" fill="#f8f7f3"/>
+  <rect x="50" y="14" width="258" height="180" rx="4" fill="#fdfcf9" stroke="#e2e0d8" stroke-width="0.8"/>
+
+  <!-- pane header: icon, title, folder, buttons; no rule under it -->
+  <rect x="55" y="19" width="5" height="4" rx="1" fill="#7aa86f"/>
+  <rect x="63" y="20" width="22" height="2.4" rx="1.2" fill="#8a8a84"/>
+  <rect x="89" y="20" width="40" height="2.4" rx="1.2" fill="#d6d3c9"/>
+  <rect x="272" y="18.5" width="7" height="6" rx="1.6" fill="#f1f0ea"/>
+  <rect x="281" y="18.5" width="7" height="6" rx="1.6" fill="#f1f0ea"/>
+  <rect x="290" y="18.5" width="7" height="6" rx="1.6" fill="#f1f0ea"/>
+
+  <!-- terminal text -->
+  <rect x="60" y="34" width="46" height="2.4" rx="1.2" fill="#4f8a4f"/>
+  <rect x="110" y="34" width="64" height="2.4" rx="1.2" fill="#b9b6ad"/>
+  <rect x="60" y="42" width="86" height="2.4" rx="1.2" fill="#c9c6bd"/>
+  <rect x="60" y="50" width="58" height="2.4" rx="1.2" fill="#c9c6bd"/>
+  <rect x="60" y="58" width="104" height="2.4" rx="1.2" fill="#c9c6bd"/>
+  <rect x="60" y="66" width="72" height="2.4" rx="1.2" fill="#c9c6bd"/>
+  <rect x="60" y="80" width="5" height="8" rx="1" fill="#3a3a37"/>
+</svg>
