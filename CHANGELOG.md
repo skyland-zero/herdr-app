@@ -1,5 +1,34 @@
 # Herdr changelog
 
+## [0.1.21] - 2026-11-09
+<!-- spotlight -->
+
+### New
+- **The Rex layout.** A third shipped layout: spaces, agents and the space's branch in a narrower sidebar, one main pane with a header of its own, and a panel stack on the right for Files, Changes and Ports. Pick it in the settings window's layout list.
+- **Ports: another machine's port, on this computer.** Add a rule from the Ports panel and Herdr forwards `localhost:<local>` to a port on that machine over ssh, so a web app running there opens here in the browser. A rule that keeps itself open comes back on its own; its menu restarts or stops it, shows the ssh log, and removing it ends the tunnel.
+- `pane.swap` takes `target` as well as `direction`, so a key can send a pane to a named one. (#665, thanks @sQVe)
+
+### Fixed
+- Codex starts from the agent menu without its shared daemon. (#657, thanks @martintrifunov)
+- A layout's preview picture stays inside its card. (#621, thanks @martintrifunov)
+- kimi-code and kimicodecli draw the Kimi icon. (#647, thanks @SuTang-vain)
+- In a zoomed tab, moving focus to another pane shows that pane instead of a hidden one. (#568, thanks @martintrifunov)
+- A kept sub-agent is listed once in the agents sidebar, under its parent. (#539, thanks @mertkaradayi)
+- Find highlights the whole of a wide character at the end of a match. (#587, thanks @chanyang721)
+- A terminal shown in a window reports itself as focused while it has the keyboard, and the terminal menu leaves out split, zoom and close where there is no pane to act on. (#554, #553, thanks @thuanlm215)
+- The confirm dialog is sized to its content and draws rounded corners. (#593, #570, thanks @karlAlnebratt, @martintrifunov)
+- On Linux, the window opens with client-side decorations, so KWin no longer shrinks it to 20x20. (#601, thanks @zdziejowski)
+- A second rename press closes the prompt. (#569, thanks @martintrifunov)
+- On Linux, typing with fcitx4 works again: one XIM message per property, and the input context survives a focus change. (#558, thanks @SailorMoonQ)
+- On macOS, `herdr-app check` stays out of the dock and the caller's process group. (#398, thanks @Revofusion)
+- A mod that shows a toast runs its clock only while the toast is up. (#548, thanks @abhijit-s)
+- A core that can't be used now says why: an unusable install offers to install again, and a core that can't be reached shows its error instead of the install screen.
+- On Windows, the agents list finds locally installed programs through the core, so one installed during this session shows up.
+- Add machine explains what to run when a machine needs a login or a host key first, instead of opening a terminal for it.
+- A terminal starts at its pane's size, and one that fails to reconnect keeps its place in the layout.
+- Closing a tab or a pane with a key closes the dialog that has the keyboard first.
+- Agents that share a tab show their own titles.
+
 ## [0.1.20] - 2026-11-05
 <!-- spotlight -->
 
