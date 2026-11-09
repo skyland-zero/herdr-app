@@ -18,6 +18,10 @@ const LABEL = "herdr.port";
 // A live tunnel with nothing on screen for this long is up: ssh printed its
 // warnings (if any) and is forwarding.
 const SETTLE = 3000;
+// A live tunnel with no rule is ended only after this long: another window may
+// have just added the rule, and its tunnel can reach this listing before the
+// rule does.
+const ORPHAN = 6000;
 
 export const rules = () => {
   const v = shared("ports.rules");
@@ -79,6 +83,8 @@ export default class Ports extends View {
     this.machineList = [];
     this.info = {}; // rule id -> { phase, address, at, error }
     this.tries = {}; // rule id -> { n, at } for the auto start's backoff
+    this.held = new Map(); // rule id -> the tunnel the person stopped: auto leaves it alone
+    this.orphans = new Map(); // tunnel id -> when this window first found it with no rule
     this.reading = new Set();
     this.folded = new Set(JSON.parse(localStorage.getItem("ports.folded") ?? "[]"));
     // A row's menu is this same mod as a pointer popup: its items run here,
@@ -133,6 +139,7 @@ export default class Ports extends View {
   }
 
   start(rule, cx) {
+    this.held.delete(rule.id);
     const info = (this.info[rule.id] = { phase: "starting", at: Date.now() });
     const fail = (why) => {
       info.phase = "failed";
@@ -152,9 +159,9 @@ export default class Ports extends View {
     cx.notify();
     cx.spawn(async (cx) => {
       // The last attempt's leftovers hold both the name and the port.
-      const old = this.live().get(rule.id);
-      if (old) await hc(["kill", old.address]).catch(() => null);
-      await hc(["rm", rule.id]).catch(() => null);
+      await this.end(rule.id);
+      // Stopped while this was on its way: the person's press wins.
+      if (this.held.has(rule.id)) return;
       const r = await hc([
         "run", "--bg", "--json", "--no-parent", "--name", rule.id, "--label", `${LABEL}=${rule.id}`,
         "--", "ssh", ...args,
@@ -180,12 +187,23 @@ export default class Ports extends View {
     });
   }
 
+  // Ends a tunnel. The core knows it by the rule's id, which is also the
+  // terminal's name, so a listing that hasn't caught up with it doesn't
+  // matter: kill frees the port, rm frees the name for the next tunnel.
+  async end(id) {
+    await hc(["kill", id]).catch(() => null);
+    await hc(["rm", id]).catch(() => null);
+  }
+
   stop(rule, cx) {
-    const t = this.live().get(rule.id);
-    const address = t?.address ?? this.info[rule.id]?.address;
-    this.info[rule.id] = { ...(this.info[rule.id] ?? {}), phase: "stopped" };
-    if (address) run("terminal.kill", { terminal: address });
+    const address = this.live().get(rule.id)?.address ?? "";
+    // Stopped by the person: auto doesn't bring it back. A tunnel that shows
+    // up again under another address was started by someone else (Start in the
+    // row menu runs in the menu's own copy of this mod), so check lets go.
+    this.held.set(rule.id, address);
+    this.info[rule.id] = { phase: "stopped", address: address || this.info[rule.id]?.address };
     cx.notify();
+    cx.spawn(async () => { await this.end(rule.id); });
   }
 
   // What a tunnel is doing now. Only the ones not yet confirmed up are read
@@ -193,12 +211,26 @@ export default class Ports extends View {
   // whether ssh got a password prompt or is forwarding.
   async check(cx) {
     const rulesNow = rules();
-    if (!rulesNow.length) return;
     const live = this.live();
+    // A tunnel is a background terminal, so it outlives the rule that made it:
+    // one whose rule is gone (removed here, in another window, or before this
+    // window knew it) would hold its local port, and its name, forever.
+    const known = new Set(rulesNow.map((r) => r.id));
+    for (const id of [...this.orphans.keys()]) if (!live.has(id)) this.orphans.delete(id);
+    for (const id of live.keys()) {
+      if (known.has(id)) continue;
+      const first = this.orphans.get(id) ?? Date.now();
+      this.orphans.set(id, first);
+      if (Date.now() - first < ORPHAN) continue;
+      this.orphans.delete(id); // still there next tick? then it's tried again
+      await this.end(id);
+    }
+    if (!rulesNow.length) return;
     let changed = false;
     for (const rule of rulesNow) {
       const info = (this.info[rule.id] ??= { phase: "unknown" });
       const t = live.get(rule.id);
+      if (t && this.held.has(rule.id) && this.held.get(rule.id) !== t.address) this.held.delete(rule.id);
       if (!t) {
         // Gone: whatever it printed is the reason, if it never got up.
         if (info.phase === "up" || info.phase === "waiting" || info.phase === "starting") {
@@ -253,7 +285,7 @@ export default class Ports extends View {
     const now = Date.now();
     const live = this.live();
     for (const rule of rules()) {
-      if (rule.auto === false || live.has(rule.id)) continue;
+      if (rule.auto === false || live.has(rule.id) || this.held.has(rule.id)) continue;
       const info = this.info[rule.id];
       if (info && (info.phase === "starting" || info.phase === "waiting") && now - (info.at ?? 0) < 20000) continue;
       const m = this.machine(rule.machine);
@@ -320,12 +352,20 @@ export default class Ports extends View {
     if (it.open) cx.open_url(it.open);
     else if (it.copy !== undefined) cx.write_to_clipboard(it.copy);
     else if (it.peek) run("terminal.peek", { terminal: it.peek });
-    else if (it.remove) saveRules(rules().filter((r) => r.id !== it.remove));
-    else if (rule && it.start) this.start(rule, cx);
-    else if (rule && it.restart) {
-      this.stop(rule, cx);
-      this.start(rule, cx);
+    else if (it.remove) {
+      this.held.delete(it.remove);
+      delete this.info[it.remove];
+      delete this.tries[it.remove];
+      saveRules(rules().filter((r) => r.id !== it.remove));
+      // A rule is half of a tunnel: the other half is a background terminal
+      // that keeps forwarding, with no row left to say so. check ends any this
+      // press could not see.
+      cx.spawn(async () => { await this.end(it.remove); });
     }
+    else if (rule && it.start) this.start(rule, cx);
+    // Restart is Start: it ends the leftover first, in the same task, so a kill
+    // can't land after the new ssh and take it down.
+    else if (rule && it.restart) this.start(rule, cx);
   }
 
   // ---- drawing -------------------------------------------------------
@@ -337,6 +377,8 @@ export default class Ports extends View {
 
   stateOf(rule) {
     const info = this.info[rule.id];
+    // Stopped here, even while the kill is on its way: the person asked for it.
+    if (this.held.has(rule.id)) return "stopped";
     if (this.live().has(rule.id)) return info?.phase === "waiting" ? "waiting" : info?.phase === "up" ? "up" : "starting";
     if (info?.phase === "failed") return "failed";
     if (info?.phase === "waiting" || info?.phase === "starting") return "failed";

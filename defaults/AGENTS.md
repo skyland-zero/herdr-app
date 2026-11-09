@@ -862,7 +862,9 @@ has 120 programs (agents, editors, runtimes, tools, databases, infra);
   while Herdr runs. Rules live in `shared("ports.rules")`. A rule runs as a
   background terminal named after its id and labelled `herdr.port=<id>`, so it
   outlives the window: `<id>` on the machine's own `ssh` target, forwarding
-  `localhost:<local>` to `<host>:<remote>`.
+  `localhost:<local>` to `<host>:<remote>`. Removing a rule ends its tunnel,
+  and a tunnel whose rule is gone is ended by the panel's own check, so no
+  forgotten ssh holds the local port.
 - The Rex layout's own mods (`rex-layout-*`) are shipped examples too: they
   are `workspace-chrome`, `spaces`, `agents`, `tabs` and `pane` narrowed to
   what that layout shows, and `rex-layout-info` (the workspace's branch and
