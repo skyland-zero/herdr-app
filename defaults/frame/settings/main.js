@@ -1,7 +1,7 @@
 // App-owned settings mod. Writes changes immediately; no Save step.
 
 import { View, div, svg, image } from "gpui-kit";
-import { v_flex, h_flex, Scrollbar, InputState, Input } from "gpui-base";
+import { v_flex, h_flex, Scrollbar, InputState, Input, Popup } from "gpui-base";
 import { hc, run, theme, themes, fonts, updates, telemetry, settings, layouts, shared, appHome, readTextFile, writeTextFile, playSound, props, closeOverlay, window } from "herdr";
 
 const I = (name) => `frame/settings/${name}.svg`;
@@ -385,9 +385,9 @@ export default class Settings extends View {
   }
 
   // The font in use, written in itself; a click opens the list.
-  fontButton(t, which, family) {
+  fontButton(t, which, family, def) {
     const open = this.picking === which;
-    return div()
+    const trigger = div()
       .id(`st-f-${which}`)
       .w(220)
       .px(12)
@@ -407,6 +407,8 @@ export default class Settings extends View {
         cx.notify();
       })
       .child(div().font_family(family).text_size(13.5).text_color(t.foreground).child(family));
+    return Popup.new(`st-fp-${which}`, trigger)
+      .when(open, (el) => el.content(this.fontList(t, which, def)));
   }
 
   fontList(t, which, def) {
@@ -432,8 +434,13 @@ export default class Settings extends View {
         .on_click(onClick)
         .child(div().font_family(family).text_size(13.5).text_color(t.foreground).child(label));
     return v_flex()
-      .w_full()
-      .mb(8)
+      .id(`st-font-list-${which}`)
+      .w(360)
+      .on_mouse_down_out((_e, cx) => {
+        this.picking = null;
+        this.handle.focus();
+        cx.notify();
+      })
       .rounded(8)
       .border_1()
       .border_color(t.border)
@@ -463,7 +470,9 @@ export default class Settings extends View {
   look(t, cx) {
     const s = settings();
     const p = this.person;
-    const own = (key, composed, def) => (p[key] ?? def) !== composed;
+    // Numbers come back from the host as 32-bit floats: 1.1 reads as 1.100000023841858.
+    const same = (a, b) => (typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 1e-4 : a === b);
+    const own = (key, composed, def) => !same(p[key] ?? def, composed);
     const size = (key, value, d, cx) => this.change((q) => (q[key] = Math.max(8, Math.min(32, (q[key] ?? value) + d))), cx);
     const fontRow = (which, sizeKey, title, family, def, sizeNow) =>
       v_flex()
@@ -476,12 +485,11 @@ export default class Settings extends View {
             h_flex()
               .gap(8)
               .items_center()
-              .child(this.fontButton(t, which, family))
+              .child(this.fontButton(t, which, family, def))
               // The panels' text follows zoom: they size their rows to it.
               .when(Boolean(sizeKey), (el) => el.child(this.stepper(t, `st-${sizeKey}`, `${Math.round(sizeNow)}`, (_e, cx) => size(sizeKey, sizeNow, -1, cx), (_e, cx) => size(sizeKey, sizeNow, 1, cx)))),
           ),
-        )
-        .when(this.picking === which, (el) => el.child(this.fontList(t, which, def)));
+        );
     return v_flex()
       .w_full()
       .child(this.heading(t, "Layout"))
@@ -509,7 +517,17 @@ export default class Settings extends View {
         ),
       )
       .child(fontRow("font", "font_size", "Terminal font", s.font_family, DEFAULT_FONT, s.font_size))
-      .child(fontRow("ui_font", null, "Interface font", s.ui_font_family, DEFAULT_UI_FONT))
+      .children([
+        ["terminal_line_height", "Terminal line height", 0.8, 2],
+        ["terminal_scroll_speed", "Terminal scroll speed", 0.1, 5],
+      ].map(([key, title, min, max]) => this.row(
+        t, title,
+        own(key, s[key], 1) ? "This layout sets its own; yours shows in the others." : null,
+        this.stepper(t, `st-${key}`, `${Math.round(s[key] * 100)}%`,
+          (_e, cx) => this.change((q) => (q[key] = Math.max(min, Math.min(max, Math.round(((q[key] ?? s[key]) - 0.1) * 10) / 10))), cx),
+          (_e, cx) => this.change((q) => (q[key] = Math.max(min, Math.min(max, Math.round(((q[key] ?? s[key]) + 0.1) * 10) / 10))), cx)),
+      )))
+            .child(fontRow("ui_font", null, "Interface font", s.ui_font_family, DEFAULT_UI_FONT))
       .child(div().h(18))
       .child(this.heading(t, "Files"))
       .child(this.row(t, "Open files in a tab", "A click on a file in the Files panel opens it in a tab of its own, full width. Off: it opens in the panel itself.",
@@ -646,7 +664,22 @@ export default class Settings extends View {
         .child(v_flex().flex_1().min_w(0).gap(3)
           .child(div().text_size(14).text_color(t.foreground).child(m.name))
           .child(div().text_size(12.5).text_color(t.dim).child(`${m.target ?? ""} · ${state} · ${m.version ? `hc ${m.version}` : "hc version unknown"}`)))
+        .when(m.keeps_running_after_logout === false, el => el.child(div().id(`st-m-logout-${m.name}`)
+          .text_color(t.blocked).cursor_pointer().tooltip("Agents stop when you disconnect. Click for the fix.")
+          .on_click(() => run("mod.open", { name: "machine-add" })).child("⚠")))
         .child(controls.flex_none()));
+    if (m.state === "needs_login") {
+      const command = `hc machine login ${m.name}`;
+      row.child(v_flex().gap(5)
+        .child(div().text_size(12.5).text_color(t.blocked).child("needs a login: run"))
+        .child(h_flex().gap(8).items_center()
+          .child(div().flex_1().min_w(0).text_size(12.5).text_color(t.foreground).child(command))
+          .child(this.button(t, `st-m-login-copy-${m.name}`, this.copiedLogin === command ? "Copied" : "Copy", (_e, cx) => {
+            cx.write_to_clipboard(command);
+            this.copiedLogin = command;
+            cx.notify();
+          }))));
+    }
     if (busy === "update") row.child(div().text_size(12.5).text_color(t.dim).child("Copying this computer's herdr-core. Its terminals keep running."));
     if (edit && !busy) {
       const cancel = this.button(t, `st-m-cancel-${m.name}`, "Cancel", (_e, cx) => { this.machineEdit = null; this.handle.focus(); cx.notify(); });
@@ -735,7 +768,7 @@ export default class Settings extends View {
         : [result, check("st-check-app")];
     const c = u.core;
     const core = c.managed
-      ? [`Managed by ${c.managed}: update it there.`, null]
+      ? [`Managed by ${c.managed}: update it there.${c.ready ? ` ${c.ready} is available.` : ""}`, u.checks ? check("st-check-core") : null]
       : c.updating
         ? ["Updating\u2026 your terminals keep running.", null]
         : c.error
@@ -866,6 +899,12 @@ export default class Settings extends View {
     return h_flex()
       .id("settings")
       .track_focus(this.handle)
+      .when(Boolean(this.picking), (el) => el.on_action("overlay.close", (_e, cx) => {
+        this.picking = null;
+        this.handle.focus();
+        cx.stop_propagation();
+        cx.notify();
+      }))
       .w_full()
       .h(620)
       .min_h(0)
