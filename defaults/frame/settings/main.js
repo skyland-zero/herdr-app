@@ -2,7 +2,7 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, InputState, Input, Popup } from "gpui-base";
-import { hc, run, theme, themes, fonts, updates, telemetry, settings, layouts, shared, appHome, readTextFile, writeTextFile, playSound, props, closeOverlay, window } from "herdr";
+import { hc, run, theme, themes, fonts, updates, telemetry, settings, layouts, shared, appHome, readTextFile, writeTextFile, playSound, props, closeOverlay, notify, window } from "herdr";
 
 const I = (name) => `frame/settings/${name}.svg`;
 
@@ -98,31 +98,53 @@ export default class Settings extends View {
     });
   }
 
+  // `broken`: settings.json doesn't parse (mid-edit), or isn't an object, so
+  // nothing may be written over it.
   async load() {
     this.raw = await readTextFile(this.file());
     try {
-      this.person = this.raw ? JSON.parse(this.raw) : {};
+      const person = this.raw ? JSON.parse(this.raw) : {};
+      this.broken = !person || typeof person !== "object" || Array.isArray(person);
+      this.person = this.broken ? {} : person;
     } catch {
       this.person = {};
+      this.broken = true;
     }
   }
 
   // Changes settings.json the way an agent would: read, change, write back
-  // only if nobody changed it meanwhile (else read again and redo).
+  // only if nobody changed it meanwhile (else read again and redo). Says so
+  // when it couldn't.
   change(edit, cx) {
     cx.spawn(async (cx) => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        await this.load();
-        const next = JSON.parse(JSON.stringify(this.person));
-        edit(next);
-        try {
-          await writeTextFile(this.file(), JSON.stringify(next, null, 2) + "\n", this.raw);
-          this.person = next;
-          break;
-        } catch {}
-      }
+      const failed = await this.save(edit);
+      if (failed) notify({ ...failed, level: "error" });
       cx.notify();
     });
+  }
+
+  // The toast saying why `edit` wasn't written, or null once it is.
+  async save(edit) {
+    let error;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let next;
+      try {
+        await this.load();
+        if (this.broken) return { title: "settings.json has errors: fix it first" };
+        next = JSON.parse(JSON.stringify(this.person));
+        edit(next);
+      } catch (e) {
+        return { title: "Cannot read settings.json", body: String(e?.message ?? e) };
+      }
+      try {
+        await writeTextFile(this.file(), JSON.stringify(next, null, 2) + "\n", this.raw);
+        this.person = next;
+        return null;
+      } catch (e) {
+        error = e;
+      }
+    }
+    return { title: "Not saved to settings.json", body: String(error?.message ?? error) };
   }
 
   close() {
@@ -474,6 +496,7 @@ export default class Settings extends View {
     const same = (a, b) => (typeof a === "number" && typeof b === "number" ? Math.abs(a - b) < 1e-4 : a === b);
     const own = (key, composed, def) => !same(p[key] ?? def, composed);
     const size = (key, value, d, cx) => this.change((q) => (q[key] = Math.max(8, Math.min(32, (q[key] ?? value) + d))), cx);
+    const step = (key, value, d, lo, hi, cx) => this.change((q) => (q[key] = Math.round(Math.max(lo, Math.min(hi, (q[key] ?? value) + d)) * 100) / 100), cx);
     const fontRow = (which, sizeKey, title, family, def, sizeNow) =>
       v_flex()
         .w_full()
@@ -517,17 +540,27 @@ export default class Settings extends View {
         ),
       )
       .child(fontRow("font", "font_size", "Terminal font", s.font_family, DEFAULT_FONT, s.font_size))
+      .child(
+        this.row(
+          t,
+          "Terminal font weight",
+          own("font_weight", s.font_weight, 500) ? "This layout sets its own; yours shows in the others." : "Bold text stays at 700.",
+          this.stepper(t, "st-font_weight", `${s.font_weight}`, (_e, cx) => step("font_weight", s.font_weight, -100, 100, 900, cx), (_e, cx) => step("font_weight", s.font_weight, 100, 100, 900, cx)),
+        ),
+      )
       .children([
-        ["terminal_line_height", "Terminal line height", 0.8, 2],
-        ["terminal_scroll_speed", "Terminal scroll speed", 0.1, 5],
-      ].map(([key, title, min, max]) => this.row(
-        t, title,
-        own(key, s[key], 1) ? "This layout sets its own; yours shows in the others." : null,
-        this.stepper(t, `st-${key}`, `${Math.round(s[key] * 100)}%`,
-          (_e, cx) => this.change((q) => (q[key] = Math.max(min, Math.min(max, Math.round(((q[key] ?? s[key]) - 0.1) * 10) / 10))), cx),
-          (_e, cx) => this.change((q) => (q[key] = Math.max(min, Math.min(max, Math.round(((q[key] ?? s[key]) + 0.1) * 10) / 10))), cx)),
-      )))
-            .child(fontRow("ui_font", null, "Interface font", s.ui_font_family, DEFAULT_UI_FONT))
+        ["terminal_line_height", "Terminal line height", 0.8, 2, 0.1],
+        ["terminal_cell_width", "Terminal cell width", 0.8, 2, 0.05],
+        ["terminal_scroll_speed", "Terminal scroll speed", 0.1, 5, 0.1],
+      ].map(([key, title, min, max, step]) => {
+        const by = (d) => (_e, cx) => this.change((q) => (q[key] = Math.max(min, Math.min(max, Math.round(Math.round(((q[key] ?? s[key]) + d) / step) * step * 100) / 100))), cx);
+        return this.row(
+          t, title,
+          own(key, s[key], 1) ? "This layout sets its own; yours shows in the others." : null,
+          this.stepper(t, `st-${key}`, `${Math.round(s[key] * 100)}%`, by(-step), by(step)),
+        );
+      }))
+      .child(fontRow("ui_font", null, "Interface font", s.ui_font_family, DEFAULT_UI_FONT))
       .child(div().h(18))
       .child(this.heading(t, "Files"))
       .child(this.row(t, "Open files in a tab", "A click on a file in the Files panel opens it in a tab of its own, full width. Off: it opens in the panel itself.",
