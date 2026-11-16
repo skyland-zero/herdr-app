@@ -1,5 +1,45 @@
 # Herdr changelog
 
+## [0.1.23] - 2026-11-16
+<!-- spotlight -->
+
+### New
+- **Terminal text can be heavier or lighter, and cells wider or narrower.** `font_weight` (100-900, default 500) and `terminal_cell_width` (0.8-2, default 1) in settings.json or a layout; bold stays 700. (#332, #962, thanks @abhijit-s and @glappen)
+- **New worktrees go where you choose.** `"worktrees": { "directory": "~/Developer/worktrees" }` in settings.json puts each checkout at `<directory>/<repo>/<branch>` on the space's machine, remote machines included. (#1011, thanks @SabotageAndi)
+- **Copy on select is a setting.** `copy_on_select: false` keeps the selection visible and leaves the clipboard alone; Cmd+C / Ctrl+Shift+C still copies it, and Linux selections still set PRIMARY. (#656, thanks @martintrifunov)
+- **Drag files and folders into a terminal.** Mods mark an element with `drag_paths()`; dropping pastes quoted paths, and local files dropped on another machine's terminal are copied there. (#320, thanks @youpele52)
+- **A layout can blur the desktop behind the window.** Root-only `"window_blur": true` works on macOS, Windows and some Wayland compositors; transparent colors then show the desktop through frosted glass. (#702, thanks @jaklimoff)
+- **New spaces and tabs can open without taking focus.** `focus: false` on `space.new` or `tab.new` keeps the shown space, its selected tab and the keyboard, and puts the new tab last in its space. (#602)
+- **`tab.move` steps a tab left or right.** `by: -1` or `by: 1` wraps and skips settled tabs the way `tab.next` does. (#1040, thanks @sundarshahi)
+- **A standard macOS menu bar.** Its menus run the same commands as keys.json, show the bound key, and follow rebinding; Cmd+M minimizes.
+- **New built-in programs.** oh-my-pi (`omp`), and goose agents get their own icon and name and start from the + menu. (#730, #544, thanks @jespada)
+- **Mods can do more:** read a terminal pane's scroll position with `panes().scroll`; guard startup work with `checking()` during a check; select terminal text from the keyboard with `terminal.select`, `adjust_selection` and `clear_selection`; read and replace a script editor's selection; hear a trackpad pinch with `on_pinch`; set the window title with `setWindowTitle()`; set a macOS Dock badge with `setBadge()`. (#1015, #1033, #923, #788, #681, #1027, thanks @enesbala5, @tjbtiller, @BernardMora, @c3nx and @danicrg)
+
+### Fixed
+- **Zooming a pane focuses it,** and the arrow keys still move between panes while one is zoomed. (#1058, thanks @jaklimoff)
+- A failed git check keeps a space's last known repo; worktree folders for branch names with combining marks or non-ASCII characters stay distinct.
+- Middle-click pastes the selection on Linux, does nothing on macOS, and pastes the clipboard on Windows; programs that capture the mouse still receive it.
+- Scrolling the tab bar no longer races through tabs. (#812)
+- **Mods recover instead of staying broken.** Invalid saved values fall back to defaults, failed loads recover when the script VMs are exhausted, and a window's mods move to a fresh VM before reloads exhaust it. (#760)
+- Kitty placeholder images draw without seams between rows, and underlines draw in their style and color. (#984, thanks @CptnKirk)
+- The spaces list keeps the active space in view. (#977, thanks @w4rc0n)
+- On macOS, Edit > Copy and Paste act on the focused text field, and terminal selection follows keyboard focus.
+- An update that cannot replace a file says why.
+- Cursor starts and is recognized through its agent CLI. (#728, thanks @yankewei)
+- A file dropped on another machine's terminal that cannot be sent now says why. (#811, thanks @sundarshahi)
+- `hc` runs the core the app found when a mod or remote exec asks for it. (#825, thanks @sundarshahi)
+- `tab.move` fails on a pane id instead of panicking. (#752, thanks @abhijit-s)
+- Agents started from + with fish on macOS show their name and icon, not a shell. (#786)
+- An agent title keeps its leading bracket. (#935, thanks @fryorcraken)
+- The Herdr 98 mod's date and time dialog shows the UTC offset. (#940, thanks @renny-ren)
+- An unnamed tab is named after its program. (#892)
+- The Settings window never writes over a broken settings.json. (#411, thanks @abhijit-s)
+- Agents launch through `sh` when the shell is unsupported, and Windows launches keep the resolved PowerShell path.
+- A tab Herdr named follows its agent's session title. (#737, thanks @chasereyn)
+- Long space names use the sidebar's width. (#865)
+- An input's selection is painted in the theme's selection colour. (#768, thanks @martintrifunov)
+- A virtual list's `scroll_to_bottom` lands on the last row it draws next. (#973, thanks @jaklimoff)
+
 ## [0.1.22] - 2026-11-12
 <!-- spotlight -->
 
