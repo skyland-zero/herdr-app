@@ -5997,6 +5997,14 @@ mod tests {
     }
 
     fn open_heavy(cx: &mut gpui::TestAppContext, mib: usize) -> (gpui::Entity<super::AppWindow>, &mut gpui::VisualTestContext) {
+        // The tests count every copy; this release's What's New would open a
+        // frame copy beside the one they test.
+        let home = crate::mods::app_dir();
+        std::fs::write(
+            home.join("update-notes.json"),
+            format!(r#"{{"last_run":"{}"}}"#, env!("CARGO_PKG_VERSION")),
+        )
+        .unwrap();
         let (view, cx) = open_window(cx, "heavy", &heavy_mod(0, mib), serde_json::json!({ "id": "heavy", "type": "block", "content": { "mod": "heavy" } }));
         cx.run_until_parked();
         assert_eq!(view.update(cx, |this, _| this.copies.values().filter(|c| c.root.is_some()).count()), 1, "the mod loads");

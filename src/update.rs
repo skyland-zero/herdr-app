@@ -660,6 +660,7 @@ mod tests {
                 .args(["--exact", "update::tests::managed_cores_report_new_releases_without_running_updates", "--nocapture"])
                 .env(CHILD, "1")
                 .env("HERDR_RELEASES_URL", format!("file://{}", root.display()))
+                .env("HERDR_CORE_RELEASES_URL", format!("file://{}", root.display()))
                 .output().unwrap();
             std::fs::remove_dir_all(root).unwrap();
             assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
