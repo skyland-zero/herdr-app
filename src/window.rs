@@ -5998,8 +5998,10 @@ mod tests {
 
     fn open_heavy(cx: &mut gpui::TestAppContext, mib: usize) -> (gpui::Entity<super::AppWindow>, &mut gpui::VisualTestContext) {
         // The tests count every copy; this release's What's New would open a
-        // frame copy beside the one they test.
+        // frame copy beside the one they test. The child process starts with a
+        // fresh HERDR_APP_HOME that nothing has created yet, so make it first.
         let home = crate::mods::app_dir();
+        std::fs::create_dir_all(&home).unwrap();
         std::fs::write(
             home.join("update-notes.json"),
             format!(r#"{{"last_run":"{}"}}"#, env!("CARGO_PKG_VERSION")),
