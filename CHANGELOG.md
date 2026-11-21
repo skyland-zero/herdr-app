@@ -1,5 +1,30 @@
 # Herdr changelog
 
+## [0.1.24] - 2026-11-21
+<!-- spotlight -->
+
+### New
+- **Mods can open the links you click.** A mod ships `link.js` exporting `handleLink(click)` and lists `link_handlers` rules (file or URL patterns) in `mod.json`; a layout's root `link_handlers` picks the mods and their order, and `herdr-app check` validates the rules and the export without running the module. Views of the same mod with the same props now share their `localStorage` values. (#1203)
+- **New built-in programs.** Swival agents get their own icon and name and start from the + menu, and BoldCreate joins the list. (#947, #989, thanks @jedisct1 and @ValanArockiyaKiraswin-sf3952)
+
+### Fixed
+- **Toasts show their whole text,** growing to fit and scrolling when it is taller than the window. (#782, thanks @Danipulok)
+- **The Files preview and the Changes diff follow `font_size`** and the layout's `font`, including wide characters and the line-number gutter. (#648, thanks @carun)
+- **A peeked terminal's Keep button puts it in a space on its own machine.** (#1165, thanks @DeevsDeevs)
+- Ctrl-click (Cmd-click on macOS) opens Cursor and VS Code remote links. (#998, thanks @martintrifunov)
+- The command palette offers only the themes that fit the window's light or dark. (#1120, thanks @Fiyxxx)
+- A kept sub-agent keeps its done status in the agents list, and a helper's done no longer pulls a working parent out of Working. (#1004, thanks @martintrifunov)
+- An agent's own emoji stays in its name in the agents rail. (#1141, thanks @eatnows)
+- A dialog's input keeps the keyboard when focus is restored. (#1089, thanks @darkwebber)
+- Rename comes first in the pane menu, as in the tab and space menus. (#1160, thanks @abhijit-s)
+- A bare repo kept in `<project>/.bare` is named after its project. (#1001, thanks @mfassaie)
+- Removing a worktree that Git refuses keeps the space open.
+- The Changes panel follows a space switch while the last folder is still loading.
+- A mod or layout named with a dot no longer freezes the window.
+- `pane.resize` no longer moves a pane that isn't on screen or whose machine's layout is unavailable.
+- A paste to another machine's terminal says that it is still sending.
+- Mod reloads stay responsive while a mod is reading a socket.
+
 ## [0.1.23] - 2026-11-16
 <!-- spotlight -->
 
